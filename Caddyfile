@@ -1,0 +1,7 @@
+{
+    acme_dns duckdns {env.DUCKDNS_TOKEN}
+}
+
+{env.DUCKDNS_DOMAIN}:18000 {
+    reverse_proxy app:8000
+}

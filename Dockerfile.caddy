@@ -1,0 +1,5 @@
+FROM caddy:alpine
+RUN apk add --no-cache curl && \
+    curl -fsSL "https://caddyserver.com/api/download?os=linux&arch=arm64&p=github.com%2Fcaddy-dns%2Fduckdns" \
+    -o /usr/bin/caddy && \
+    chmod +x /usr/bin/caddy

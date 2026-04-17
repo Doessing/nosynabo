@@ -1,0 +1,25 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+
+  caddy:
+    build:
+      context: .
+      dockerfile: Dockerfile.caddy
+    restart: unless-stopped
+    ports:
+      - "18000:18000"
+    environment:
+      - DUCKDNS_TOKEN=${DUCKDNS_TOKEN}
+      - DUCKDNS_DOMAIN=${DUCKDNS_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  caddy_data:
+  caddy_config:
