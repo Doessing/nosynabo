@@ -1,5 +1,5 @@
 """
-nosy-neighbour web server.
+nosy-nabo web server.
 
 Serves a map-based UI, a JSON REST API, and an MCP server at POST /mcp.
 """
@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from mcp.server.fastmcp import FastMCP
 import uvicorn
 
-from nosy_neighbour import TinglysningClient, get_loan_type_info
+from nosy_nabo import TinglysningClient, get_loan_type_info
 from boligsiden import get_sales_history
 from resolver import resolve as resolve_address, ResolveError
 
@@ -48,7 +48,7 @@ def _git_version() -> str:
 
 
 # Captured at import time. The service is always restarted on deploy
-# (see /opt/nosyneighbour/update.sh), so this is safe; if the process is
+# (see /opt/nosynabo/update.sh), so this is safe; if the process is
 # ever hot-reloaded in future, this needs to move into /api/version.
 _VERSION = _git_version()
 
@@ -75,7 +75,7 @@ def _annotate_loan_types(tingbog: dict) -> dict:
 
 
 # ── MCP server ────────────────────────────────────────────────────────────────
-mcp_server = FastMCP("nosy-neighbour", stateless_http=True, json_response=True)
+mcp_server = FastMCP("nosy-nabo", stateless_http=True, json_response=True)
 
 
 @mcp_server.tool()
@@ -135,7 +135,7 @@ async def lifespan(app: FastAPI):
         yield
 
 
-app = FastAPI(title="nosy-neighbour", lifespan=lifespan)
+app = FastAPI(title="nosy-nabo", lifespan=lifespan)
 
 # Self-hosted Leaflet (and any future static assets). Mounted before the MCP
 # catch-all on / so /static/* routes resolve here. StaticFiles sets
@@ -261,7 +261,7 @@ def sales_history(q: str = Query(...)):
 
 @app.get("/api/resolve")
 def resolve_endpoint(q: str = Query(...)):
-    """Return the structured identifiers nosy-neighbour derives for an address.
+    """Return the structured identifiers nosy-nabo derives for an address.
 
     Useful for debugging (why does source X not find my address?) and as a
     shared primitive for any client that wants to call multiple data-source

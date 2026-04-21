@@ -29,7 +29,7 @@ pip install -r requirements.txt
 python server.py
 
 # CLI
-python nosy_neighbour.py "Eksempelvej 1, 1234 Byby"
+python nosy_nabo.py "Eksempelvej 1, 1234 Byby"
 ```
 
 ---
@@ -153,7 +153,7 @@ claude mcp add --transport http nosynabo http://localhost:8000/mcp
 ## CLI
 
 ```
-usage: nosy_neighbour.py [-h] [--isin PRIORITY:ISIN] address [address ...]
+usage: nosy_nabo.py [-h] [--isin PRIORITY:ISIN] address [address ...]
 
 positional arguments:
   address              Freeform address, e.g. "Eksempelvej 1 1234 Byby"
