@@ -89,6 +89,60 @@
     defaultPrevented: false,
   });
 
+  // Immediately probe whether the page's own JS functions are defined.
+  // If toggleSidebarMobile is undefined, the onclick attribute silently
+  // does nothing even though click events fire.
+  setTimeout(function () {
+    try {
+      send('_fns', {
+        target: 'global-function-check',
+        path: 'toggle=' + typeof window.toggleSidebarMobile +
+              ' open=' + typeof window.openSidebarMobile +
+              ' close=' + typeof window.closeSidebarMobile +
+              ' isMobile=' + typeof window.isMobileViewport +
+              ' addAddress=' + typeof window.addAddress +
+              ' L=' + typeof window.L +
+              ' map=' + typeof window.map,
+        defaultPrevented: false,
+      });
+    } catch (e) {
+      send('_fns_error', {target: String(e.message), path: '', defaultPrevented: false});
+    }
+  }, 500);
+
+  // Monkey-patch toggleSidebarMobile to observe each invocation.
+  setTimeout(function () {
+    try {
+      if (typeof window.toggleSidebarMobile === 'function') {
+        var orig = window.toggleSidebarMobile;
+        window.toggleSidebarMobile = function () {
+          send('_fn_called', {
+            target: 'toggleSidebarMobile',
+            path: 'before: bodyOpen=' + document.body.classList.contains('sidebar-open'),
+            defaultPrevented: false,
+          });
+          try {
+            var r = orig.apply(this, arguments);
+            send('_fn_called', {
+              target: 'toggleSidebarMobile',
+              path: 'after: bodyOpen=' + document.body.classList.contains('sidebar-open'),
+              defaultPrevented: false,
+            });
+            return r;
+          } catch (e) {
+            send('_fn_error', {
+              target: 'toggleSidebarMobile threw',
+              path: String(e.message || e),
+              defaultPrevented: false,
+            });
+          }
+        };
+      } else {
+        send('_fn_missing', {target: 'toggleSidebarMobile undefined', path: '', defaultPrevented: false});
+      }
+    } catch (_) {}
+  }, 800);
+
   // Also expose a hook so the user (or a test script) can manually probe.
   window.__debugPing = function (label) {
     send('_ping', {target: String(label || ''), path: '', defaultPrevented: false});
