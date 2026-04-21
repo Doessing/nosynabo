@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Readme — Nosy Nabo</title>
+  <meta name="description" content="Readme for Nosy Nabo — dansk ejendomsopslag.">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
+  <link rel="stylesheet" href="/static/style.css"/>
+  <script>
+    // Apply theme before render to avoid flash. Same key/logic as index.html.
+    (function() {
+      const t = localStorage.getItem('nosy-theme');
+      if (t === 'dark' || (!t && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    })();
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body class="readme-page">
+  <nav class="readme-nav">
+    <a href="/">&larr; Tilbage til søgning</a>
+    <a class="secondary" href="https://github.com/Doessing/nosynabo" target="_blank" rel="noopener">Se på GitHub</a>
+  </nav>
+  <div class="readme-content">
+    <div id="readme-loading">Indlæser README…</div>
+    <div id="readme-error" style="display:none"></div>
+    <div id="readme-output" style="display:none"></div>
+  </div>
+
+  <script>
+    const RAW_URL = 'https://raw.githubusercontent.com/Doessing/nosynabo/refs/heads/main/README.md';
+
+    fetch(RAW_URL)
+      .then(r => {
+        if (!r.ok) throw new Error('HTTP ' + r.status + ' fra GitHub');
+        return r.text();
+      })
+      .then(md => {
+        document.getElementById('readme-loading').style.display = 'none';
+        const out = document.getElementById('readme-output');
+        out.style.display = 'block';
+        out.innerHTML = marked.parse(md);
+      })
+      .catch(err => {
+        document.getElementById('readme-loading').style.display = 'none';
+        const errEl = document.getElementById('readme-error');
+        errEl.style.display = 'block';
+        errEl.textContent = 'Kunne ikke hente README: ' + err.message;
+      });
+  </script>
+</body>
+</html>

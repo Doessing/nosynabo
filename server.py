@@ -59,6 +59,10 @@ with open("templates/index.html") as f:
 # exactly which commit is serving the page. Purely for operator use.
 _index_html = f"<!-- version: {_VERSION} -->\n{_index_html}"
 
+with open("templates/readme.html") as f:
+    _readme_html = f.read()
+_readme_html = f"<!-- version: {_VERSION} -->\n{_readme_html}"
+
 
 def _annotate_loan_types(tingbog: dict) -> dict:
     # Tingbog can come from _tingbog_cache, so deep-copy before mutating to
@@ -279,6 +283,14 @@ def resolve_endpoint(q: str = Query(...)):
 @app.get("/", response_class=HTMLResponse)
 def index():
     return HTMLResponse(content=_index_html)
+
+
+@app.get("/readme", response_class=HTMLResponse)
+def readme():
+    """Render the project README. The page fetches the raw Markdown from
+    GitHub client-side, so the server only serves the viewer shell.
+    """
+    return HTMLResponse(content=_readme_html)
 
 
 # Cheeky little globe with glasses — served inline so we don't have to add
