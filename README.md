@@ -226,38 +226,38 @@ Member loans against the share live in Andelsboligbog, not Tingbog. If nosynabo 
 ```mermaid
 flowchart TB
     subgraph Ejendomsoeg [Tingbog - physical property]
-        P["Association's common property<br/>e.g. Rytterv&aelig;nget 101A<br/>owner: Andelsboligforeningen X<br/>mortgage: 1 shared loan"]
+        P["Association's common property<br/>e.g. Andelsvej 1<br/>owner: Andelsboligforeningen X<br/>mortgage: 1 shared loan"]
     end
 
     subgraph Andelsoeg [Andelsboligbog - shares]
-        S1["Share 101A<br/>owner: foundation entry<br/>may have liens"]
-        S2["Share 107A<br/>member Alice<br/>liens: 559k ejerpantebrev"]
-        S3["Share 109B<br/>member Bob<br/>liens: ..."]
+        S1["Share on main address<br/>owner: foundation entry<br/>may have liens"]
+        S2["Share on unit B<br/>member Alice<br/>liens: 559k ejerpantebrev"]
+        S3["Share on unit C<br/>member Bob<br/>liens: ..."]
     end
 
-    ADDR1["Address 'Rytterv&aelig;nget 101A'"] --> P
+    ADDR1["Address 'Andelsvej 1'"] --> P
     ADDR1 --> S1
-    ADDR2["Address 'Rytterv&aelig;nget 107A'"] -.matrikel fallback.-> P
+    ADDR2["Address 'Andelsvej 1B'"] -.matrikel fallback.-> P
     ADDR2 --> S2
-    ADDR3["Address 'Rytterv&aelig;nget 109B'"] -.matrikel fallback.-> P
+    ADDR3["Address 'Andelsvej 1C'"] -.matrikel fallback.-> P
     ADDR3 --> S3
 ```
 
 Empirical findings driving the current lookup logic:
 
-- The association's main address (e.g. `101A`) is in **both** ejendomsoeg AND andelsoeg. They return different UUIDs because they're different legal entities: the property vs. the share headquarters.
-- Individual member addresses (e.g. `107A`, `109B`) are **only** in andelsoeg. They resolve to the association's tingbog via matrikel fallback.
+- The association's main address is in **both** ejendomsoeg AND andelsoeg. They return different UUIDs because they're different legal entities: the property vs. the share headquarters.
+- Individual member addresses (sub-units) are **only** in andelsoeg. They resolve to the association's tingbog via matrikel fallback.
 - There is **no marker in DAWA** distinguishing a cooperative address from a standalone property. Every address must be asked both registers.
 
 As a result, `lookup_address()` always queries andelsoeg in parallel with ejendomsoeg. The response shape reflects this dual nature:
 
 ```json
 {
-  "adresse": "Ryttervænget 101A, 6752 Glejbjerg",
-  "ejere": [{ "navn": "Andelsboligforeningen Ryttervænget, ..." }],
+  "adresse": "Andelsvej 1, 1234 Byby",
+  "ejere": [{ "navn": "Andelsboligforeningen X" }],
   "haeftelser": [ /* the association's shared mortgage */ ],
   "andelsbolig": {
-    "adresse": "Ryttervænget 101A, 6752 Glejbjerg",
+    "adresse": "Andelsvej 1, 1234 Byby",
     "haeftelser": [ /* the share's own liens, if any */ ]
   }
 }
