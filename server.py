@@ -286,7 +286,13 @@ def resolve_endpoint(q: str = Query(...)):
 
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return HTMLResponse(content=_index_html)
+    # no-cache forces browsers to revalidate the HTML on every load. The
+    # static assets it references use ?v=<hash> cache-busting, so they stay
+    # cacheable — but the HTML must be fresh to reference the new hashes.
+    return HTMLResponse(
+        content=_index_html,
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
 
 
 @app.get("/readme", response_class=HTMLResponse)
@@ -294,7 +300,10 @@ def readme():
     """Render the project README. The page fetches the raw Markdown from
     GitHub client-side, so the server only serves the viewer shell.
     """
-    return HTMLResponse(content=_readme_html)
+    return HTMLResponse(
+        content=_readme_html,
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
 
 
 # Cheeky little globe with glasses — served inline so we don't have to add
