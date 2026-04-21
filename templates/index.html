@@ -33,6 +33,11 @@
 
 <h1 class="visually-hidden">Nosy Nabo — dansk ejendomsopslag</h1>
 
+<button id="sidebar-toggle" class="sidebar-toggle" aria-label="Vis/skjul resultater" aria-expanded="false" onclick="toggleSidebarMobile()">
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+</button>
+<div id="sidebar-backdrop" class="sidebar-backdrop" onclick="closeSidebarMobile()"></div>
+
 <div id="sidebar">
   <div id="search-box">
     <input id="search-input" type="text" placeholder="Søg adresse… (fx Stålhøjen 24 Risskov)" autocomplete="off"/>
@@ -70,6 +75,34 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
 // entries: [{ label, lat, lng, data, error, loading, marker }]
 const entries = [];
+
+// ── Mobile sidebar toggle ─────────────────────────────────────────────────
+// The sidebar is always visible on >=768px. Below that it's an off-canvas
+// drawer controlled via body.sidebar-open (see CSS). We only auto-open it
+// when a new entry is added or an existing marker is selected — never on
+// re-renders, so users can close it and keep the map view.
+function isMobileViewport() {
+  return window.matchMedia('(max-width: 767px)').matches;
+}
+function openSidebarMobile() {
+  if (!isMobileViewport()) return;
+  document.body.classList.add('sidebar-open');
+  const btn = document.getElementById('sidebar-toggle');
+  if (btn) btn.setAttribute('aria-expanded', 'true');
+}
+function closeSidebarMobile() {
+  document.body.classList.remove('sidebar-open');
+  const btn = document.getElementById('sidebar-toggle');
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+function toggleSidebarMobile() {
+  if (document.body.classList.contains('sidebar-open')) {
+    closeSidebarMobile();
+  } else {
+    document.body.classList.add('sidebar-open');
+    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', 'true');
+  }
+}
 
 let loanAssumption = 'deferred_10y';
 
@@ -189,9 +222,10 @@ async function addAddress(label, lat, lng) {
   if (entries.some(e => e.label === label)) {
     return;
   }
+  openSidebarMobile();
   const idx = entries.length;
   const marker = L.marker([lat, lng], { icon: numberedIcon(idx + 1) }).addTo(map);
-  marker.on('click', () => scrollToEntry(idx));
+  marker.on('click', () => { openSidebarMobile(); scrollToEntry(idx); });
 
   const entry = {
     label, lat, lng,

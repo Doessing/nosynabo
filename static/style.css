@@ -13,7 +13,8 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 14px;
   display: flex;
-  height: 100vh;
+  height: 100vh;       /* fallback for older browsers */
+  height: 100dvh;      /* dynamic viewport — excludes mobile browser chrome */
   overflow: hidden;
   background: #f5f5f5;
 }
@@ -481,3 +482,52 @@ td:last-child { font-weight: 500; }
 [data-theme="dark"] .readme-content em { color: #9ca3af; }
 [data-theme="dark"] .readme-nav a { color: #60a5fa; }
 [data-theme="dark"] .readme-nav .secondary { color: #9ca3af; }
+
+/* ── Mobile sidebar toggle + backdrop (hidden by default on desktop) ── */
+.sidebar-toggle {
+  display: none;
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 1001;
+  width: 44px; height: 44px;
+  border: none;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,.2);
+  color: #111;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+}
+.sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.4);
+  z-index: 20;
+  opacity: 0;
+  transition: opacity .2s;
+}
+[data-theme="dark"] .sidebar-toggle { background: #16213e; color: #e0e0e0; box-shadow: 0 2px 6px rgba(0,0,0,.5); }
+
+@media (max-width: 767px) {
+  .sidebar-toggle { display: flex; }
+
+  #sidebar {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    width: 85%;
+    max-width: 380px;
+    transform: translateX(-100%);
+    transition: transform .25s ease;
+    z-index: 30;
+  }
+  body.sidebar-open #sidebar { transform: translateX(0); }
+  body.sidebar-open .sidebar-backdrop {
+    display: block;
+    opacity: 1;
+  }
+  /* Hide toggle when sidebar is open (backdrop-tap closes it). */
+  body.sidebar-open .sidebar-toggle { display: none; }
+}
