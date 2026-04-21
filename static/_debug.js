@@ -94,34 +94,68 @@
     send('_ping', {target: String(label || ''), path: '', defaultPrevented: false});
   };
 
-  // Every 2s while the page is open, probe the hamburger button and report
-  // its state (position, computed display, element-from-point at its center).
-  // This catches the case where the button is where we think it is in DOM
-  // but the user's device renders or layers it differently.
+  // Every 2s while the page is open, probe the hamburger button AND sidebar
+  // state so we can see exactly what's rendered vs what we expect.
   var probeCount = 0;
   var probeInterval = setInterval(function () {
-    if (++probeCount > 10) { clearInterval(probeInterval); return; }
+    if (++probeCount > 15) { clearInterval(probeInterval); return; }
     try {
       var b = document.getElementById('sidebar-toggle');
-      if (!b) { send('_probe', {target: 'sidebar-toggle-missing', path: '', defaultPrevented: false}); return; }
-      var r = b.getBoundingClientRect();
-      var cs = window.getComputedStyle(b);
-      var cx = r.x + r.width / 2, cy = r.y + r.height / 2;
-      var topEl = document.elementFromPoint(cx, cy);
+      var sb = document.getElementById('sidebar');
+      var bd = document.getElementById('sidebar-backdrop');
+      var btnInfo = null, sbInfo = null, bdInfo = null;
+      if (b) {
+        var br = b.getBoundingClientRect();
+        var bcs = window.getComputedStyle(b);
+        btnInfo = {
+          rect: [Math.round(br.x), Math.round(br.y), Math.round(br.width), Math.round(br.height)],
+          display: bcs.display,
+        };
+      }
+      if (sb) {
+        var sr = sb.getBoundingClientRect();
+        var scs = window.getComputedStyle(sb);
+        sbInfo = {
+          rect: [Math.round(sr.x), Math.round(sr.y), Math.round(sr.width), Math.round(sr.height)],
+          display: scs.display,
+          visibility: scs.visibility,
+          position: scs.position,
+          transform: scs.transform,
+          zIndex: scs.zIndex,
+          opacity: scs.opacity,
+          width: scs.width,
+          left: scs.left,
+          top: scs.top,
+        };
+      }
+      if (bd) {
+        var dr = bd.getBoundingClientRect();
+        var dcs = window.getComputedStyle(bd);
+        bdInfo = {
+          rect: [Math.round(dr.x), Math.round(dr.y), Math.round(dr.width), Math.round(dr.height)],
+          display: dcs.display,
+          opacity: dcs.opacity,
+        };
+      }
+      // Element at sidebar's expected center (if open)
+      var elAt = null;
+      try {
+        var el = document.elementFromPoint(50, window.innerHeight / 2);
+        if (el) elAt = el.nodeName + (el.id ? '#' + el.id : '') + (el.className ? '.' + String(el.className).split(/\s+/).slice(0,2).join('.') : '');
+      } catch (_) {}
       send('_probe', {
-        target: 'sidebar-toggle',
-        path: topEl ? (topEl.nodeName + (topEl.id ? '#' + topEl.id : '')) : 'null',
+        target: 'full-state',
+        path: 'bodyOpen=' + document.body.classList.contains('sidebar-open') + ' elAt50x=' + elAt,
         defaultPrevented: false,
         extra: {
-          rect: [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)],
-          display: cs.display,
-          visibility: cs.visibility,
-          pointerEvents: cs.pointerEvents,
-          touchAction: cs.touchAction,
-          zIndex: cs.zIndex,
-          bodyOpen: document.body.classList.contains('sidebar-open'),
+          btn: btnInfo,
+          sidebar: sbInfo,
+          backdrop: bdInfo,
+          matchesMobileMQ: window.matchMedia('(max-width: 767px), (max-height: 500px) and (max-width: 900px)').matches,
         },
       });
-    } catch (_) {}
+    } catch (e) {
+      send('_probe_error', {target: String(e.message), path: '', defaultPrevented: false});
+    }
   }, 2000);
 })();
