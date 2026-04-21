@@ -709,27 +709,51 @@ function renderSidebar() {
 }
 
 function renderEntryCards(container, d, salesHistory) {
-  if (d._matrikel_fallback) {
+  const hasAndelsbolig = !!d.andelsbolig;
+  const hasEjendomsbog = !!(d.uuid && d.ejendomstype);
+
+  if (hasAndelsbolig) {
+    // Addresses that exist in Andelsboligbogen are cooperative dwellings.
+    // Explain the two-book structure up front so the reader understands why
+    // we show both the association's property and the member's individual
+    // share below.
+    container.appendChild(html(`
+      <div class="card" style="border-left:3px solid #2563eb;background:#eff6ff">
+        <div class="card-title" style="color:#1d4ed8">Andelsbolig</div>
+        <div style="font-size:13px;line-height:1.5">
+          Denne adresse er registreret i <strong>Andelsboligbogen</strong>.
+          ${hasEjendomsbog
+            ? "Nedenfor vises både andelsforeningens fælles ejendom (fra Ejendomsbogen) og andelshaverens individuelle hæftelser (fra Andelsboligbogen)."
+            : "Andelshaverens individuelle hæftelser vises nedenfor. Andelsforeningens fælles ejendom kunne ikke lokaliseres i Ejendomsbogen."}
+        </div>
+      </div>
+    `));
+  } else if (d._matrikel_fallback) {
+    // Non-cooperative umbrella property: hospital, large farm, institution,
+    // or an address that shares its matrikel with a parent property.
     const fb = d._matrikel_fallback;
     container.appendChild(html(`
       <div class="card" style="border-left:3px solid #d97706;background:#fffbeb">
-        <div class="card-title" style="color:#92400e">Andelsbolig / fællesejendom</div>
+        <div class="card-title" style="color:#92400e">Fællesejendom / paraplyejendom</div>
         <div style="font-size:13px;line-height:1.5">
           Den søgte adresse har ikke sin egen tingbog. Tingbogen nedenfor dækker
           hele ejendommen (matrikel <strong>${esc(fb.matrikelnr)}</strong>,
-          ejerlav ${esc(fb.ejerlavskode)}), som typisk ejes af en andelsbolig\u00ADforening
-          eller almen boligorganisation.
+          ejerlav ${esc(fb.ejerlavskode)}), som typisk er en institution,
+          almen boligorganisation eller anden paraplyejendom.
           ${fb.parent_adresse ? `Hovedadresse: <strong>${esc(fb.parent_adresse)}</strong>.` : ''}
         </div>
       </div>
     `));
   }
-  container.appendChild(html(`
-    <div class="card">
-      <div class="address-header">${esc(d.adresse)}</div>
-      <div class="property-type">${esc(d.ejendomstype)}</div>
-    </div>
-  `));
+
+  if (hasEjendomsbog) {
+    container.appendChild(html(`
+      <div class="card">
+        <div class="address-header">${esc(d.adresse)}</div>
+        <div class="property-type">${esc(d.ejendomstype)}</div>
+      </div>
+    `));
+  }
 
   if (d.matrikler?.length) {
     container.appendChild(html(`
@@ -798,6 +822,26 @@ function renderEntryCards(container, d, salesHistory) {
     const card = html('<div class="card"><div class="card-title">Hæftelser</div></div>');
     d.haeftelser.forEach(h => card.appendChild(renderMortgage(h)));
     container.appendChild(card);
+  }
+
+  if (d.andelsbolig) {
+    const a = d.andelsbolig;
+    const shareLiens = a.haeftelser || [];
+    const header = hasEjendomsbog
+      ? 'Andelshaverens hæftelser <span style="color:#6b7280;font-weight:400;font-size:11px">(Andelsboligbogen — på andelen)</span>'
+      : 'Hæftelser <span style="color:#6b7280;font-weight:400;font-size:11px">(Andelsboligbogen)</span>';
+    if (shareLiens.length) {
+      const card = html(`<div class="card" style="border-left:3px solid #2563eb"><div class="card-title">${header}</div></div>`);
+      shareLiens.forEach(h => card.appendChild(renderMortgage(h)));
+      container.appendChild(card);
+    } else {
+      container.appendChild(html(`
+        <div class="card" style="border-left:3px solid #2563eb">
+          <div class="card-title">${header}</div>
+          <div style="font-size:13px;color:#6b7280">Ingen hæftelser tinglyst på andelen.</div>
+        </div>
+      `));
+    }
   }
 
   if (d.servitutter?.length) {
