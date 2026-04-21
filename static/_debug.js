@@ -128,6 +128,52 @@
               path: 'after: bodyOpen=' + document.body.classList.contains('sidebar-open'),
               defaultPrevented: false,
             });
+            // VISUAL SANITY PROBE: when sidebar opens, inject a bright red
+            // 100×100 box at top:100px,left:100px,z-index:99999. If the user
+            // can't see this either, the problem is not sidebar-specific —
+            // it's something fundamental about rendering (full-screen
+            // overlay, broken compositor layer, etc).
+            if (document.body.classList.contains('sidebar-open')) {
+              var existing = document.getElementById('__debug-red-box');
+              if (!existing) {
+                var box = document.createElement('div');
+                box.id = '__debug-red-box';
+                box.style.cssText = 'position:fixed !important;top:100px !important;left:100px !important;width:100px !important;height:100px !important;background:red !important;z-index:999999 !important;border:5px solid yellow !important;pointer-events:none;';
+                box.textContent = 'DEBUG';
+                box.style.color = 'white';
+                box.style.fontSize = '20px';
+                box.style.fontWeight = 'bold';
+                document.body.appendChild(box);
+              }
+              // Also probe the sidebar's actual paint by reading computed
+              // background and checking if it has any ancestor with
+              // visibility:hidden, opacity:0, or display:none.
+              var sb = document.getElementById('sidebar');
+              var chain = [];
+              var el = sb;
+              while (el && el !== document.documentElement) {
+                var cs = window.getComputedStyle(el);
+                chain.push({
+                  tag: el.nodeName + (el.id ? '#' + el.id : ''),
+                  display: cs.display,
+                  visibility: cs.visibility,
+                  opacity: cs.opacity,
+                  bg: cs.backgroundColor,
+                  transform: cs.transform,
+                  filter: cs.filter,
+                  clipPath: cs.clipPath,
+                  overflow: cs.overflow,
+                  zIndex: cs.zIndex,
+                });
+                el = el.parentElement;
+              }
+              send('_paint_chain', {
+                target: 'sidebar-ancestor-chain',
+                path: 'on-open',
+                defaultPrevented: false,
+                extra: chain,
+              });
+            }
             return r;
           } catch (e) {
             send('_fn_error', {
