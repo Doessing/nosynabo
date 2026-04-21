@@ -773,5 +773,18 @@ function renderHistory() {
   });
 }
 </script>
+<!-- Debug instrumentation: loaded only when ?debug=1 is in the URL. Diagnoses
+     mobile tap/click issues on devices we can't reach via ADB. Safe because
+     the server-side /api/_debug endpoint is gated on branch name / NOSY_DEBUG=1. -->
+<script>
+  try {
+    if (new URLSearchParams(location.search).has('debug')) {
+      var s = document.createElement('script');
+      s.src = '/static/_debug.js?v={{VERSION}}';
+      s.async = false;
+      document.body.appendChild(s);
+    }
+  } catch (_) {}
+</script>
 </body>
 </html>

@@ -11,7 +11,7 @@ import subprocess
 from contextlib import asynccontextmanager
 
 import requests
-from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from mcp.server.fastmcp import FastMCP
@@ -304,6 +304,50 @@ def readme():
         content=_readme_html,
         headers={"Cache-Control": "no-cache, must-revalidate"},
     )
+
+
+# ── Debug instrumentation endpoint ─────────────────────────────────────────
+# Accepts JSONL event payloads from /static/_debug.js and appends one line per
+# event to /tmp/nosynabo-debug.jsonl. Guarded by branch name (only active on
+# feature branches — not main) or explicit NOSY_DEBUG=1 env override.
+# Rate-limited by file size: drops writes once log exceeds 10 MB.
+_DEBUG_LOG_PATH = "/tmp/nosynabo-debug.jsonl"
+_DEBUG_LOG_MAX_BYTES = 10 * 1024 * 1024
+_DEBUG_ENABLED = (
+    os.environ.get("NOSY_DEBUG") == "1"
+    or any(seg in _VERSION for seg in ("feat/", "fix/", "debug/"))
+)
+
+
+@app.post("/api/_debug", status_code=204)
+async def _debug_ingest(request: Request):
+    """Accept a single JSON event from the debug instrumentation script.
+    Writes one JSONL line with server-side timestamp and client IP.
+    """
+    if not _DEBUG_ENABLED:
+        raise HTTPException(status_code=404, detail="not found")
+    try:
+        size = os.path.getsize(_DEBUG_LOG_PATH)
+    except OSError:
+        size = 0
+    if size >= _DEBUG_LOG_MAX_BYTES:
+        return Response(status_code=204)  # silently drop; log is full
+    try:
+        body = await request.body()
+        if len(body) > 4096:
+            body = body[:4096]
+        import json as _json
+        try:
+            payload = _json.loads(body)
+        except Exception:
+            payload = {"raw": body.decode("utf-8", "replace")[:500]}
+        payload["_ip"] = request.client.host if request.client else "?"
+        payload["_server_t"] = int(__import__("time").time() * 1000)
+        with open(_DEBUG_LOG_PATH, "a") as f:
+            f.write(_json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception as e:
+        log.warning("debug ingest failed: %s", e)
+    return Response(status_code=204)
 
 
 # Cheeky little globe with glasses — served inline so we don't have to add
