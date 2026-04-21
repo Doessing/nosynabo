@@ -79,7 +79,7 @@ body {
 }
 .empty-state strong { display: block; font-size: 16px; color: #666; margin-bottom: 8px; }
 .empty-state .empty-logo {
-  width: 40px; height: 40px;
+  width: 150px; height: 150px;
   display: block;
   margin: 0 auto 10px;
 }
