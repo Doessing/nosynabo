@@ -108,6 +108,33 @@ function toggleSidebarMobile() {
     if (btn) btn.setAttribute('aria-expanded', 'true');
   }
 }
+// Some mobile browsers (observed on MIUI/Chrome on Xiaomi) fail to fire a
+// synthetic click after touchstart if any micro-movement occurs, because the
+// gesture detector claims the sequence. Bind touchend explicitly as a
+// fallback and guard against double-fire with a short cooldown.
+(function bindSidebarToggleRobust() {
+  let lastFire = 0;
+  function fire(e) {
+    const now = Date.now();
+    if (now - lastFire < 400) return; // de-dup click + touchend
+    lastFire = now;
+    if (e && e.cancelable) e.preventDefault();
+    try { toggleSidebarMobile(); } catch (err) { console.error('toggle failed', err); }
+  }
+  function attach() {
+    const btn = document.getElementById('sidebar-toggle');
+    if (!btn) { setTimeout(attach, 50); return; }
+    // Remove inline onclick so we own the event entirely.
+    btn.onclick = null;
+    btn.addEventListener('click', fire);
+    btn.addEventListener('touchend', fire, { passive: false });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', attach);
+  } else {
+    attach();
+  }
+})();
 // Close drawer on viewport resize into desktop range (e.g. orientation change).
 window.addEventListener('resize', () => {
   if (!isMobileViewport() && document.body.classList.contains('sidebar-open')) {

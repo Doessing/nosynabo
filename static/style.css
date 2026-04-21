@@ -505,6 +505,14 @@ td:last-child { font-weight: 500; }
   cursor: pointer;
   align-items: center;
   justify-content: center;
+  /* Prevent MIUI/Chrome from converting tap into gesture (which suppresses
+     the synthetic click event). manipulation disables double-tap zoom and
+     gesture detection on this element, so touchstart→touchend always fires
+     a click. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(0,0,0,0.1);
+  -webkit-user-select: none;
+  user-select: none;
 }
 .sidebar-toggle:active { background: #f3f4f6; }
 /* SVG children should be transparent to pointer events so every tap lands
