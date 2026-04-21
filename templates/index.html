@@ -83,7 +83,8 @@ const entries = [];
 // Below 768px the sidebar is an off-canvas drawer. body.sidebar-open is the
 // single source of truth; CSS transitions the translateX.
 function isMobileViewport() {
-  return window.matchMedia('(max-width: 767px)').matches;
+  // Keep in sync with the @media rules in style.css.
+  return window.matchMedia('(max-width: 767px), (max-height: 500px) and (max-width: 900px)').matches;
 }
 function openSidebarMobile() {
   if (!isMobileViewport()) return;

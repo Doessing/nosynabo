@@ -525,7 +525,9 @@ td:last-child { font-weight: 500; }
   box-shadow: 0 2px 6px rgba(0,0,0,.5);
 }
 
-@media (max-width: 767px) {
+/* Mobile rules apply both at narrow width (portrait phones) and at short
+   height with limited width (landscape phones up to ~900px wide). */
+@media (max-width: 767px), (max-height: 500px) and (max-width: 900px) {
   .sidebar-toggle { display: flex; }
 
   #sidebar {
@@ -563,7 +565,7 @@ td:last-child { font-weight: 500; }
 
 /* Landscape phones: keep empty-state compact so it doesn't eat all vertical
    space on a 375×667-ish viewport turned sideways. */
-@media (max-width: 767px) and (max-height: 480px) {
+@media (max-height: 480px) and (max-width: 900px) {
   .empty-state { margin-top: 20px; }
   .empty-state .empty-logo { width: 28px; height: 28px; }
 }
