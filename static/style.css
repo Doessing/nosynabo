@@ -507,6 +507,10 @@ td:last-child { font-weight: 500; }
   justify-content: center;
 }
 .sidebar-toggle:active { background: #f3f4f6; }
+/* SVG children should be transparent to pointer events so every tap lands
+   on the button itself (some mobile browsers route taps to the nearest
+   painted child, which has no click handler). */
+.sidebar-toggle svg, .sidebar-toggle svg * { pointer-events: none; }
 
 .sidebar-backdrop {
   display: none;
