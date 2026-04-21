@@ -11,7 +11,7 @@ import subprocess
 from contextlib import asynccontextmanager
 
 import requests
-from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from mcp.server.fastmcp import FastMCP
@@ -57,6 +57,10 @@ with open("templates/index.html") as f:
 
 # Inject a version marker at the top so `Ctrl+U` + search for "version" reveals
 # exactly which commit is serving the page. Purely for operator use.
+# Short hash only (first token) for use in URL query strings — the full
+# _VERSION contains spaces (branch, timestamp) which are invalid in URLs.
+_VERSION_SHORT = _VERSION.split()[0] if _VERSION else "dev"
+_index_html = _index_html.replace("{{VERSION}}", _VERSION_SHORT)
 _index_html = f"<!-- version: {_VERSION} -->\n{_index_html}"
 
 with open("templates/readme.html") as f:
@@ -283,7 +287,19 @@ def resolve_endpoint(q: str = Query(...)):
 
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return HTMLResponse(content=_index_html)
+    # Swap in the live debug flag on every request so toggling the config
+    # file takes effect immediately without a restart. The script tag in
+    # index.html only tries to load /static/_debug.js when both (a) the
+    # URL carries ?debug=1 and (b) this server-side flag is true.
+    html = _index_html.replace("__DEBUG_ALLOWED__",
+                               "true" if _debug_enabled() else "false")
+    # no-cache forces browsers to revalidate the HTML on every load. The
+    # static assets it references use ?v=<hash> cache-busting, so they stay
+    # cacheable — but the HTML must be fresh to reference the new hashes.
+    return HTMLResponse(
+        content=html,
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
 
 
 @app.get("/readme", response_class=HTMLResponse)
@@ -291,7 +307,118 @@ def readme():
     """Render the project README. The page fetches the raw Markdown from
     GitHub client-side, so the server only serves the viewer shell.
     """
-    return HTMLResponse(content=_readme_html)
+    return HTMLResponse(
+        content=_readme_html,
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
+
+
+# ── Debug instrumentation endpoint ─────────────────────────────────────────
+# Accepts JSONL event payloads from /static/_debug.js and appends one line per
+# event to /tmp/nosynabo-debug.jsonl.
+#
+# On/off switch (checked on every request, so no restart is needed when you
+# flip it). Precedence, highest wins:
+#   1. /etc/nosynabo/debug.conf  — a plain file. If it contains "enabled=1"
+#      or just "1" or "on" / "true", debug is ON. "0"/"off"/"false" → OFF.
+#      File missing → fall through to next level.
+#   2. NOSY_DEBUG env var         — "1"/"on"/"true" forces ON. "0" forces OFF.
+#   3. Branch name heuristic      — ON when running on a feat/ / fix/ / debug/
+#      branch (so ad-hoc feature work gets instrumentation for free), OFF on
+#      main.
+# Rate-limited by file size: drops writes once log exceeds 10 MB.
+_DEBUG_LOG_PATH = "/tmp/nosynabo-debug.jsonl"
+_DEBUG_LOG_MAX_BYTES = 10 * 1024 * 1024
+_DEBUG_CONFIG_PATH = "/etc/nosynabo/debug.conf"
+
+
+def _debug_enabled() -> bool:
+    """Return True if the debug instrumentation is currently enabled.
+
+    Re-read on every call so flipping /etc/nosynabo/debug.conf takes effect
+    without a service restart.
+    """
+    truthy = {"1", "on", "true", "yes", "enabled"}
+    falsy = {"0", "off", "false", "no", "disabled"}
+
+    # 1. Config file — highest priority so ops can force-toggle without deploy.
+    try:
+        with open(_DEBUG_CONFIG_PATH) as f:
+            raw = f.read().strip().lower()
+        # Support either a bare value ("1") or INI-ish "enabled=1".
+        if "=" in raw:
+            for line in raw.splitlines():
+                line = line.strip()
+                if line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                if k.strip() == "enabled":
+                    raw = v.strip()
+                    break
+        if raw in truthy:
+            return True
+        if raw in falsy:
+            return False
+    except OSError:
+        pass  # file missing or unreadable → fall through
+
+    # 2. Env var override.
+    env = os.environ.get("NOSY_DEBUG", "").strip().lower()
+    if env in truthy:
+        return True
+    if env in falsy:
+        return False
+
+    # 3. Branch-name heuristic — feature branches default to ON, main to OFF.
+    return any(seg in _VERSION for seg in ("feat/", "fix/", "debug/"))
+
+
+@app.get("/api/_debug/status")
+def _debug_status():
+    """Expose current debug state so you can verify the toggle without SSH."""
+    enabled = _debug_enabled()
+    return {
+        "enabled": enabled,
+        "config_file": _DEBUG_CONFIG_PATH,
+        "config_file_exists": os.path.exists(_DEBUG_CONFIG_PATH),
+        "env_NOSY_DEBUG": os.environ.get("NOSY_DEBUG"),
+        "version": _VERSION,
+        "log_path": _DEBUG_LOG_PATH,
+        "log_size_bytes": os.path.getsize(_DEBUG_LOG_PATH)
+            if os.path.exists(_DEBUG_LOG_PATH) else 0,
+        "log_max_bytes": _DEBUG_LOG_MAX_BYTES,
+    }
+
+
+@app.post("/api/_debug", status_code=204)
+async def _debug_ingest(request: Request):
+    """Accept a single JSON event from the debug instrumentation script.
+    Writes one JSONL line with server-side timestamp and client IP.
+    """
+    if not _debug_enabled():
+        raise HTTPException(status_code=404, detail="not found")
+    try:
+        size = os.path.getsize(_DEBUG_LOG_PATH)
+    except OSError:
+        size = 0
+    if size >= _DEBUG_LOG_MAX_BYTES:
+        return Response(status_code=204)  # silently drop; log is full
+    try:
+        body = await request.body()
+        if len(body) > 4096:
+            body = body[:4096]
+        import json as _json
+        try:
+            payload = _json.loads(body)
+        except Exception:
+            payload = {"raw": body.decode("utf-8", "replace")[:500]}
+        payload["_ip"] = request.client.host if request.client else "?"
+        payload["_server_t"] = int(__import__("time").time() * 1000)
+        with open(_DEBUG_LOG_PATH, "a") as f:
+            f.write(_json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception as e:
+        log.warning("debug ingest failed: %s", e)
+    return Response(status_code=204)
 
 
 # Cheeky little globe with glasses — served inline so we don't have to add

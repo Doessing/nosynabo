@@ -16,9 +16,9 @@
   <link rel="preconnect" href="https://b.tile.openstreetmap.org" crossorigin>
   <link rel="preconnect" href="https://c.tile.openstreetmap.org" crossorigin>
   <!-- Leaflet 1.9.4 — self-hosted from /static/leaflet/. See static/leaflet/VERSION. -->
-  <link rel="stylesheet" href="/static/leaflet/leaflet.css"/>
+  <link rel="stylesheet" href="/static/leaflet/leaflet.css?v={{VERSION}}"/>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
-  <link rel="stylesheet" href="/static/style.css"/>
+  <link rel="stylesheet" href="/static/style.css?v={{VERSION}}"/>
   <script>
     // Apply theme before render to avoid flash
     (function() {
@@ -32,6 +32,14 @@
 <body>
 
 <h1 class="visually-hidden">Nosy Nabo — dansk ejendomsopslag</h1>
+
+<!-- Mobile sidebar controls. Hidden on >=768px by CSS. -->
+<button id="sidebar-toggle" class="sidebar-toggle" type="button"
+        aria-label="Vis søgning og resultater" aria-controls="sidebar" aria-expanded="false"
+        onclick="toggleSidebarMobile()">
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+</button>
+<div id="sidebar-backdrop" class="sidebar-backdrop" onclick="closeSidebarMobile()" aria-hidden="true"></div>
 
 <div id="sidebar">
   <div id="search-box">
@@ -59,7 +67,7 @@
 <!-- Leaflet 1.9.4 — self-hosted from /static/leaflet/.
      To upgrade: bump the version in static/leaflet/VERSION and re-run the
      download steps documented there. -->
-<script src="/static/leaflet/leaflet.js"></script>
+<script src="/static/leaflet/leaflet.js?v={{VERSION}}"></script>
 <script>
 // ── Map setup ──────────────────────────────────────────────────────────────
 const map = L.map('map').setView([56.0, 10.5], 7);
@@ -70,6 +78,70 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
 // entries: [{ label, lat, lng, data, error, loading, marker }]
 const entries = [];
+
+// ── Mobile sidebar drawer ────────────────────────────────────────────────
+// Below 768px the sidebar is an off-canvas drawer. body.sidebar-open is the
+// single source of truth; CSS transitions the translateX.
+function isMobileViewport() {
+  // Keep in sync with the @media rules in style.css.
+  return window.matchMedia('(max-width: 767px), (max-height: 500px) and (max-width: 900px)').matches;
+}
+function openSidebarMobile() {
+  if (!isMobileViewport()) return;
+  document.body.classList.add('sidebar-open');
+  const btn = document.getElementById('sidebar-toggle');
+  if (btn) btn.setAttribute('aria-expanded', 'true');
+}
+function closeSidebarMobile() {
+  document.body.classList.remove('sidebar-open');
+  const btn = document.getElementById('sidebar-toggle');
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+  // Let the drawer finish sliding out, then tell Leaflet to re-measure.
+  setTimeout(() => { if (window.map && map.invalidateSize) map.invalidateSize(); }, 300);
+}
+function toggleSidebarMobile() {
+  if (document.body.classList.contains('sidebar-open')) {
+    closeSidebarMobile();
+  } else {
+    document.body.classList.add('sidebar-open');
+    const btn = document.getElementById('sidebar-toggle');
+    if (btn) btn.setAttribute('aria-expanded', 'true');
+  }
+}
+// Some mobile browsers fail to fire a synthetic click after touchstart if
+// any micro-movement occurs, because the gesture detector claims the
+// sequence. Reproduced on both Android Chrome (Xiaomi/MIUI) and iOS Safari
+// (iPhone 16). Bind touchend explicitly as a fallback and guard against
+// double-fire with a short cooldown.
+(function bindSidebarToggleRobust() {
+  let lastFire = 0;
+  function fire(e) {
+    const now = Date.now();
+    if (now - lastFire < 400) return; // de-dup click + touchend
+    lastFire = now;
+    if (e && e.cancelable) e.preventDefault();
+    try { toggleSidebarMobile(); } catch (err) { console.error('toggle failed', err); }
+  }
+  function attach() {
+    const btn = document.getElementById('sidebar-toggle');
+    if (!btn) { setTimeout(attach, 50); return; }
+    // Remove inline onclick so we own the event entirely.
+    btn.onclick = null;
+    btn.addEventListener('click', fire);
+    btn.addEventListener('touchend', fire, { passive: false });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', attach);
+  } else {
+    attach();
+  }
+})();
+// Close drawer on viewport resize into desktop range (e.g. orientation change).
+window.addEventListener('resize', () => {
+  if (!isMobileViewport() && document.body.classList.contains('sidebar-open')) {
+    closeSidebarMobile();
+  }
+});
 
 let loanAssumption = 'deferred_10y';
 
@@ -187,11 +259,13 @@ function selectSuggestion(s) {
 async function addAddress(label, lat, lng) {
   // Bug 9: reject duplicates (same label already in the list)
   if (entries.some(e => e.label === label)) {
+    openSidebarMobile();  // still surface existing entry on duplicate tap
     return;
   }
+  openSidebarMobile();
   const idx = entries.length;
   const marker = L.marker([lat, lng], { icon: numberedIcon(idx + 1) }).addTo(map);
-  marker.on('click', () => scrollToEntry(idx));
+  marker.on('click', () => { openSidebarMobile(); scrollToEntry(idx); });
 
   const entry = {
     label, lat, lng,
@@ -726,6 +800,21 @@ function renderHistory() {
     });
   });
 }
+</script>
+<!-- Debug instrumentation: loaded only when BOTH (a) the server has debug
+     enabled (see _debug_enabled() in server.py — config file, env, or
+     branch heuristic) AND (b) the URL carries ?debug=1. The server-side
+     check here is substituted on every request, so toggling
+     /etc/nosynabo/debug.conf is live without a restart. -->
+<script>
+  try {
+    if (__DEBUG_ALLOWED__ && new URLSearchParams(location.search).has('debug')) {
+      var s = document.createElement('script');
+      s.src = '/static/_debug.js?v={{VERSION}}';
+      s.async = false;
+      document.body.appendChild(s);
+    }
+  } catch (_) {}
 </script>
 </body>
 </html>
