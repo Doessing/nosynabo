@@ -1,5 +1,5 @@
 """
-nosy-neighbour: Look up Danish property records from tinglysning.dk.
+nosy-nabo: Look up Danish property records from tinglysning.dk.
 
 Find out who owns a property, what it's worth, what mortgages are on it,
 and what type of loans they have -- all from a freeform address string.
