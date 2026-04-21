@@ -44,6 +44,7 @@ _UNCERTAIN_THRESHOLD = 1.0
 # back-to-back property lookups.
 _dst_cache: TTLCache = TTLCache(maxsize=256, ttl=86400)     # 24h
 _tingbog_cache: TTLCache = TTLCache(maxsize=1024, ttl=600)  # 10min
+_andelsbolig_cache: TTLCache = TTLCache(maxsize=1024, ttl=600)  # 10min
 
 # Ticker patterns that identify loan types in ESMA FIRDS data.
 # Realkredit Danmark: 1RD...1IT=F1, 1RD...2IT=F3, 1RD...RF=F5
@@ -435,6 +436,45 @@ class TinglysningClient:
         _tingbog_cache[uuid] = data
         return data
 
+    def search_andelsbolig(self, postnummer: str, vejnavn: str, husnummer: str) -> list[dict]:
+        """Search for an andelsbolig (cooperative dwelling) in Andelsboligbogen.
+
+        Andelsboligbogen is a parallel register for cooperative-housing shares
+        (andelsandele). It covers liens registered against the individual
+        member's share, distinct from the cooperative association's underlying
+        property registered in the normal ejendomsbog.
+
+        Returns a list with 'uuid', 'adresse', and 'bog' fields. Empty list
+        when the address is not a cooperative dwelling.
+        """
+        data = self._get_json(f"{BASE_URL}/andelsoeg/soeg", {
+            "postnummer": postnummer,
+            "vejnavn": vejnavn,
+            "husnummer": husnummer,
+        })
+        if data.get("statuskode") not in (0, 1):
+            # 0 = ok, 1 = "no results" — any other code is a real error
+            raise RuntimeError(f"Andelsoeg failed: {data.get('statustekst')}")
+        return data.get("items") or []
+
+    def get_andelsboligbog(self, uuid: str) -> dict:
+        """Fetch andelsboligbog data (liens on the cooperative share) for a UUID.
+
+        Returns the share-holder's individual mortgages and related info.
+        Unlike tingbog, andelsboligbog has no ejere/servitutter/vurdering —
+        the cooperative as an entity holds the property, not the member.
+        """
+        hit = _andelsbolig_cache.get(uuid)
+        if hit is not None:
+            return hit
+        data = self._get_json(
+            f"{BASE_URL}/andelsoeg/hentandelsboligbog/{uuid}", {},
+        )
+        if data.get("statuskode") != 0:
+            raise RuntimeError(f"Andelsbolig lookup failed: {data.get('statustekst')}")
+        _andelsbolig_cache[uuid] = data
+        return data
+
     def lookup_address(
         self,
         postnummer: str,
@@ -446,25 +486,48 @@ class TinglysningClient:
     ) -> dict:
         """Full lookup: search for a property and return its tingbog data.
 
-        Combines search_property() and get_tingbog() into a single call.
+        An address can independently appear in ejendomsoeg (physical
+        property / tingbog) and andelsoeg (cooperative-share /
+        andelsboligbog). We've confirmed empirically that the cooperative
+        association's main address is in BOTH registers (e.g. "Ryttervænget
+        101A" has a tingbog for the association AND an andelsboligbog
+        entry), while individual member addresses (e.g. "107A") are ONLY in
+        andelsoeg. There's no marker in DAWA to distinguish these cases —
+        we have to ask both registers. So andelsoeg is always queried in
+        parallel with the main ejendomsoeg flow, as additive enrichment.
 
-        If the exact-address search returns no result (which happens for
-        andelsboliger / almennyttige ejendomme where the individual dwelling
-        has no separate tingbog), we fall back to asking DAWA for every
-        address sharing the same matrikel, then try each as a tinglysning
-        search target until one resolves. That lets us surface the parent
-        foundation/association's tingbog without scanning a whole street.
+        Lookup flow:
+          1. ejendomsoeg direct hit → tingbog + andelsoeg (may also hit).
+          2. miss + matrikel info → matrikel-fallback for the umbrella
+             property (hospital, farm, cooperative association) +
+             andelsoeg.
+          3. if only andelsoeg found something → minimal shell with just
+             the share data.
 
-        The returned tingbog gets a `_matrikel_fallback` dict with details
-        about why it was used, or None when the exact address matched.
+        Returns the tingbog dict enriched with:
+          * `_matrikel_fallback`: dict with details when matrikel fallback
+            was used, None otherwise.
+          * `andelsbolig`: dict with cooperative-share data when the address
+            is in Andelsboligbogen, None otherwise.
         """
+        # Query andelsoeg in parallel — a cooperative dwelling is both a
+        # registered share (andelsboligbog) AND often sits inside a physical
+        # property (ejendomsbog). The association's main address appears in
+        # both registers. We can't tell from DAWA whether an address is a
+        # cooperative, so we always ask.
+        andelsbolig = self._try_lookup_andelsbolig(postnummer, vejnavn, husnummer)
+
         items = self.search_property(postnummer, vejnavn, husnummer)
         if items:
             tingbog = self.get_tingbog(items[0]["uuid"])
             tingbog["_matrikel_fallback"] = None
+            tingbog["andelsbolig"] = andelsbolig
             return tingbog
 
         # No exact match — try to find the owning tingbog via matrikel.
+        # This covers cooperative members, hospitals, large farms, and any
+        # other umbrella property where individual addresses don't have
+        # their own tingbog but the matrikel does.
         if matrikelnr and ejerlavskode:
             fallback = self._find_tingbog_by_matrikel(
                 matrikelnr, ejerlavskode,
@@ -476,9 +539,51 @@ class TinglysningClient:
                     "ejerlavskode": ejerlavskode,
                     "parent_adresse": parent_adresse,
                 }
+                tingbog["andelsbolig"] = andelsbolig
                 return tingbog
 
+        # Neither direct ejendomsoeg nor matrikel fallback found anything.
+        # If andelsoeg succeeded, return a minimal result with just that.
+        if andelsbolig is not None:
+            return {
+                "statuskode": 0,
+                "statustekst": None,
+                "uuid": None,
+                "adresse": andelsbolig.get("adresse"),
+                "ejendomstype": None,
+                "matrikler": [],
+                "vurdering": None,
+                "ejere": [],
+                "haeftelser": [],
+                "servitutter": [],
+                "_matrikel_fallback": None,
+                "andelsbolig": andelsbolig,
+            }
+
         raise RuntimeError("No property found for the given address")
+
+    def _try_lookup_andelsbolig(
+        self,
+        postnummer: str,
+        vejnavn: str,
+        husnummer: str,
+    ) -> dict | None:
+        """Best-effort lookup in Andelsboligbogen — never raises.
+
+        The andelsoeg call is additive enrichment; if it times out, fails
+        with an HTTP error, or hits a transient upstream hiccup, we just
+        log it and return None rather than blowing up the whole lookup.
+        """
+        try:
+            items = self.search_andelsbolig(postnummer, vejnavn, husnummer)
+        except (RuntimeError, requests.exceptions.RequestException):
+            return None
+        if not items:
+            return None
+        try:
+            return self.get_andelsboligbog(items[0]["uuid"])
+        except (RuntimeError, requests.exceptions.RequestException):
+            return None
 
     def _find_tingbog_by_matrikel(
         self,
