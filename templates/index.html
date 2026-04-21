@@ -33,6 +33,14 @@
 
 <h1 class="visually-hidden">Nosy Nabo — dansk ejendomsopslag</h1>
 
+<!-- Mobile sidebar controls. Hidden on >=768px by CSS. -->
+<button id="sidebar-toggle" class="sidebar-toggle" type="button"
+        aria-label="Vis søgning og resultater" aria-controls="sidebar" aria-expanded="false"
+        onclick="toggleSidebarMobile()">
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+</button>
+<div id="sidebar-backdrop" class="sidebar-backdrop" onclick="closeSidebarMobile()" aria-hidden="true"></div>
+
 <div id="sidebar">
   <div id="search-box">
     <input id="search-input" type="text" placeholder="Søg adresse… (fx Stålhøjen 24 Risskov)" autocomplete="off"/>
@@ -70,6 +78,41 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
 // entries: [{ label, lat, lng, data, error, loading, marker }]
 const entries = [];
+
+// ── Mobile sidebar drawer ────────────────────────────────────────────────
+// Below 768px the sidebar is an off-canvas drawer. body.sidebar-open is the
+// single source of truth; CSS transitions the translateX.
+function isMobileViewport() {
+  return window.matchMedia('(max-width: 767px)').matches;
+}
+function openSidebarMobile() {
+  if (!isMobileViewport()) return;
+  document.body.classList.add('sidebar-open');
+  const btn = document.getElementById('sidebar-toggle');
+  if (btn) btn.setAttribute('aria-expanded', 'true');
+}
+function closeSidebarMobile() {
+  document.body.classList.remove('sidebar-open');
+  const btn = document.getElementById('sidebar-toggle');
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+  // Let the drawer finish sliding out, then tell Leaflet to re-measure.
+  setTimeout(() => { if (window.map && map.invalidateSize) map.invalidateSize(); }, 300);
+}
+function toggleSidebarMobile() {
+  if (document.body.classList.contains('sidebar-open')) {
+    closeSidebarMobile();
+  } else {
+    document.body.classList.add('sidebar-open');
+    const btn = document.getElementById('sidebar-toggle');
+    if (btn) btn.setAttribute('aria-expanded', 'true');
+  }
+}
+// Close drawer on viewport resize into desktop range (e.g. orientation change).
+window.addEventListener('resize', () => {
+  if (!isMobileViewport() && document.body.classList.contains('sidebar-open')) {
+    closeSidebarMobile();
+  }
+});
 
 let loanAssumption = 'deferred_10y';
 
@@ -187,11 +230,13 @@ function selectSuggestion(s) {
 async function addAddress(label, lat, lng) {
   // Bug 9: reject duplicates (same label already in the list)
   if (entries.some(e => e.label === label)) {
+    openSidebarMobile();  // still surface existing entry on duplicate tap
     return;
   }
+  openSidebarMobile();
   const idx = entries.length;
   const marker = L.marker([lat, lng], { icon: numberedIcon(idx + 1) }).addTo(map);
-  marker.on('click', () => scrollToEntry(idx));
+  marker.on('click', () => { openSidebarMobile(); scrollToEntry(idx); });
 
   const entry = {
     label, lat, lng,
