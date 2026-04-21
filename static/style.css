@@ -357,6 +357,18 @@ td:last-child { font-weight: 500; }
 }
 .readme-nav a:hover { text-decoration: underline; }
 .readme-nav .secondary { color: #6b7280; margin-left: auto; }
+.readme-nav .version-tag {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  color: #6b7280;
+  background: #f3f4f6;
+  padding: 0.15rem 0.5rem;
+  border-radius: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 22ch;
+}
 .readme-content {
   max-width: 860px;
   margin: 0 auto;
@@ -481,3 +493,4 @@ td:last-child { font-weight: 500; }
 [data-theme="dark"] .readme-content em { color: #9ca3af; }
 [data-theme="dark"] .readme-nav a { color: #60a5fa; }
 [data-theme="dark"] .readme-nav .secondary { color: #9ca3af; }
+[data-theme="dark"] .readme-nav .version-tag { background: #1a1a2e; color: #9ca3af; }

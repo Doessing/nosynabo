@@ -61,6 +61,7 @@ _index_html = f"<!-- version: {_VERSION} -->\n{_index_html}"
 
 with open("templates/readme.html") as f:
     _readme_html = f.read()
+_readme_html = _readme_html.replace("{{VERSION}}", _VERSION)
 _readme_html = f"<!-- version: {_VERSION} -->\n{_readme_html}"
 
 
