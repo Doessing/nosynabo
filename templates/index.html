@@ -801,12 +801,14 @@ function renderHistory() {
   });
 }
 </script>
-<!-- Debug instrumentation: loaded only when ?debug=1 is in the URL. Diagnoses
-     mobile tap/click issues on devices we can't reach via ADB. Safe because
-     the server-side /api/_debug endpoint is gated on branch name / NOSY_DEBUG=1. -->
+<!-- Debug instrumentation: loaded only when BOTH (a) the server has debug
+     enabled (see _debug_enabled() in server.py — config file, env, or
+     branch heuristic) AND (b) the URL carries ?debug=1. The server-side
+     check here is substituted on every request, so toggling
+     /etc/nosynabo/debug.conf is live without a restart. -->
 <script>
   try {
-    if (new URLSearchParams(location.search).has('debug')) {
+    if (__DEBUG_ALLOWED__ && new URLSearchParams(location.search).has('debug')) {
       var s = document.createElement('script');
       s.src = '/static/_debug.js?v={{VERSION}}';
       s.async = false;
