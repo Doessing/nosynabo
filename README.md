@@ -1,5 +1,15 @@
 # nosynabo
 
+## What is nosynabo?
+
+**nosynabo** combines "nosy" (curious/inquisitive) and "nabo" (Danish for neighbor) — it's a tool for the curious neighbor who wants to look up public property information about any Danish address.
+
+The tool aggregates publicly available Danish property data from multiple open registers. It retrieves only **public data from public sources** and presents it in an easy-to-use interface.
+
+nosynabo composes information from official Danish registers — tinglysning.dk (property records), DAWA (address data), Boligsiden (sale history), and others — requiring no special authorization. All data accessed is by design publicly available to anyone; the tool simply assembles it conveniently in one place via a map-based web UI or command-line interface.
+
+---
+
 Look up Danish property records from [tinglysning.dk](https://www.tinglysning.dk) via a map-based browser UI or a command-line tool.
 
 > Originally forked from [jkiddo/nosyneighbour](https://github.com/jkiddo/nosyneighbour) and has since diverged significantly. Licensed under **AGPL-3.0** (see [LICENSE](LICENSE)).
