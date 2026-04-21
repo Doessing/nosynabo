@@ -57,6 +57,7 @@ with open("templates/index.html") as f:
 
 # Inject a version marker at the top so `Ctrl+U` + search for "version" reveals
 # exactly which commit is serving the page. Purely for operator use.
+_index_html = _index_html.replace("{{VERSION}}", _VERSION)
 _index_html = f"<!-- version: {_VERSION} -->\n{_index_html}"
 
 with open("templates/readme.html") as f:
