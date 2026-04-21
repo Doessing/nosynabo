@@ -112,9 +112,158 @@ curl "http://localhost:8000/api/lookup?q=Eksempelvej+1+Byby"
       }
     }
   ],
-  "servitutter": [...]
+  "servitutter": [...],
+  "andelsbolig": null,
+  "_matrikel_fallback": null
 }
 ```
+
+For addresses in the Andelsboligbogen (cooperative housing register), `andelsbolig` contains the member's individual liens and `_matrikel_fallback` may be populated. See [Cooperative housing data model](#cooperative-housing-data-model) for details.
+
+---
+
+## Data sources
+
+nosynabo composes data from several public Danish registers. None of them require authentication for the read paths we use, but a few require solving a client-side proof-of-work (ALTCHA) before they respond.
+
+| Source | Used for | Auth |
+|---|---|---|
+| **DAWA** (Dataforsyningen) | Freeform address resolution, autocomplete, reverse geocoding, enumeration of addresses on a matrikel | None |
+| **Datafordeler BBR** | Not currently used by the UI, but `resolve()` returns the `adgang_uuid` which is BBR's primary key | None |
+| **tinglysning.dk ejendomsoeg** | Physical property records: owners, valuation, mortgages, easements | ALTCHA |
+| **tinglysning.dk andelsoeg** | Cooperative-share records: individual member's mortgages on their share | ALTCHA |
+| **Boligsiden** | Historical sale prices for private homes | None |
+| **DST DNRNURI** | Nationalbanken rate statistics (for loan-type estimation) | None |
+| **ESMA FIRDS** | Definitive loan-type via ISIN lookup (when the caller provides an ISIN) | None |
+
+ALTCHA is a CAPTCHA-style proof-of-work: the server hands out a challenge, the client solves a short hash puzzle, and submits the answer with the actual request. `nosy_nabo.py` solves ALTCHA transparently.
+
+---
+
+## Lookup flow
+
+A single call to `GET /api/lookup?q=…` kicks off this decision tree. The ejendomsoeg and andelsoeg paths can both succeed for the same address — the cooperative association's main address appears in both registers independently (see [Cooperative housing data model](#cooperative-housing-data-model)).
+
+```mermaid
+flowchart TD
+    A["Freeform address<br/>e.g. 'Eksempelvej 1 1234 Byby'"]
+    A --> B[DAWA resolve]
+    B --> C["Returns: postnr, vejnavn, husnr,<br/>matrikelnr, ejerlav,<br/>lat/lng, adresse_uuid"]
+
+    C --> D[andelsoeg/soeg<br/>always, in parallel]
+    C --> E[ejendomsoeg/soeg<br/>by exact address]
+
+    D --> D1{hit?}
+    D1 -- yes --> D2[hentandelsboligbog UUID<br/>&rarr; member liens]
+    D1 -- no --> D3[andelsbolig: null]
+
+    E --> E1{hit?}
+    E1 -- yes --> E2[hentejendomsbog UUID<br/>&rarr; owners, valuation,<br/>mortgages, easements]
+    E1 -- no --> F[DAWA: all addresses<br/>sharing same matrikel]
+    F --> G[For each sibling address:<br/>ejendomsoeg/soeg]
+    G --> G1{any hit?}
+    G1 -- yes --> E2
+    G1 -- no --> H[only andelsbolig data<br/>or RuntimeError]
+
+    E2 --> J[Final response]
+    D2 --> J
+    D3 --> J
+    H --> J
+
+    J --> K[Boligsiden sale history<br/>enrichment by adresse_uuid]
+    J --> L[Loan-type estimation<br/>per mortgage via DST/ESMA]
+```
+
+The matrikel fallback (the `F -> G -> G1` branch) handles umbrella properties — hospitals, large farms, cooperative associations — where the user's exact address is just a sub-entry on a parent matrikel owned under a different address. DAWA knows every address tied to a given (ejerlav, matrikelnr) pair, so we iterate those addresses and try each as a tinglysning search target until one resolves.
+
+---
+
+## Key insight: UUID reuse across endpoints
+
+Every entity in tinglysning.dk has a stable UUID. These UUIDs are **not per-endpoint** — the UUID you get from `ejendomsoeg/soeg` is the same UUID that identifies the record in `ejendomsoeg/hentejendomsbog`, and likewise for `andelsoeg/soeg` → `andelsoeg/hentandelsboligbog`.
+
+This means every "list search" endpoint becomes an addressable entry point to the detailed record behind it, without needing a separate lookup step. It also means that if two addresses share the same UUID in one of these registers, they refer to the same legal entity (useful for detecting that e.g. an apartment in an ejerlejligheds-complex resolves to the same tingbog as its neighbours).
+
+```mermaid
+flowchart LR
+    DAWA[DAWA adresser]
+    DAWA -->|postnr, vejnavn, husnr| ESOEG[ejendomsoeg/soeg]
+    DAWA -->|postnr, vejnavn, husnr| ASOEG[andelsoeg/soeg]
+    DAWA -->|ejerlav + matrikelnr| DAWA2[DAWA adgangsadresser<br/>by jordstykke]
+    DAWA2 -->|enumerate siblings| ESOEG
+
+    ESOEG -->|UUID| ETING[hentejendomsbog<br/>owners, valuation,<br/>mortgages, easements]
+    ASOEG -->|UUID| ABOG[hentandelsboligbog<br/>member liens]
+
+    DAWA -->|adresse_uuid| BOLIG[Boligsiden<br/>sale history]
+
+    ETING -->|haeftelse.rente + ISIN?| DST[DST DNRNURI rates]
+    ETING -->|haeftelse.ISIN| ESMA[ESMA FIRDS]
+    ABOG -->|haeftelse.rente + ISIN?| DST
+```
+
+Concretely verified identity relationships:
+
+| Register | List endpoint | Detail endpoint | UUID shared? |
+|---|---|---|---|
+| Tingbog | `ejendomsoeg/soeg` | `ejendomsoeg/hentejendomsbog/<uuid>` | Yes — verified 2026-04 |
+| Andelsboligbog | `andelsoeg/soeg` | `andelsoeg/hentandelsboligbog/<uuid>` | Yes — verified 2026-04 |
+| Authenticated (MitID) | `rest/ejendomsoeg/*` | `rest/ejendomsoeg/*` | Same UUID as unsecrest counterpart — verified 2026-04 |
+
+The last row has an important operational implication: if a user has an authenticated browser session with tinglysning.dk and fetches a UUID via the authenticated (`rest/…`) surface, the same UUID works against `unsecrest/…` without auth. The registers are the same; only the viewing surface changes.
+
+---
+
+## Cooperative housing data model
+
+Danish cooperative housing (andelsbolig) splits ownership between two separate registers:
+
+1. The **association** owns the physical property — registered in **Tingbog** (`ejendomsoeg`).
+2. Each **member** owns a share in the association — registered in **Andelsboligbog** (`andelsoeg`).
+
+Member loans against the share live in Andelsboligbog, not Tingbog. If nosynabo only queried ejendomsoeg, a cooperative member's individual mortgages would be invisible.
+
+```mermaid
+flowchart TB
+    subgraph Ejendomsoeg [Tingbog - physical property]
+        P["Association's common property<br/>e.g. Rytterv&aelig;nget 101A<br/>owner: Andelsboligforeningen X<br/>mortgage: 1 shared loan"]
+    end
+
+    subgraph Andelsoeg [Andelsboligbog - shares]
+        S1["Share 101A<br/>owner: foundation entry<br/>may have liens"]
+        S2["Share 107A<br/>member Alice<br/>liens: 559k ejerpantebrev"]
+        S3["Share 109B<br/>member Bob<br/>liens: ..."]
+    end
+
+    ADDR1["Address 'Rytterv&aelig;nget 101A'"] --> P
+    ADDR1 --> S1
+    ADDR2["Address 'Rytterv&aelig;nget 107A'"] -.matrikel fallback.-> P
+    ADDR2 --> S2
+    ADDR3["Address 'Rytterv&aelig;nget 109B'"] -.matrikel fallback.-> P
+    ADDR3 --> S3
+```
+
+Empirical findings driving the current lookup logic:
+
+- The association's main address (e.g. `101A`) is in **both** ejendomsoeg AND andelsoeg. They return different UUIDs because they're different legal entities: the property vs. the share headquarters.
+- Individual member addresses (e.g. `107A`, `109B`) are **only** in andelsoeg. They resolve to the association's tingbog via matrikel fallback.
+- There is **no marker in DAWA** distinguishing a cooperative address from a standalone property. Every address must be asked both registers.
+
+As a result, `lookup_address()` always queries andelsoeg in parallel with ejendomsoeg. The response shape reflects this dual nature:
+
+```json
+{
+  "adresse": "Ryttervænget 101A, 6752 Glejbjerg",
+  "ejere": [{ "navn": "Andelsboligforeningen Ryttervænget, ..." }],
+  "haeftelser": [ /* the association's shared mortgage */ ],
+  "andelsbolig": {
+    "adresse": "Ryttervænget 101A, 6752 Glejbjerg",
+    "haeftelser": [ /* the share's own liens, if any */ ]
+  }
+}
+```
+
+When `andelsbolig` is `null`, the address is a standalone property. When `andelsbolig` is present alongside non-empty `ejere`/`haeftelser`, you have the association-HQ case. When `andelsbolig` is present but `_matrikel_fallback` is set, you have an individual member.
 
 ---
 
