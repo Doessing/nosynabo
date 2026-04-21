@@ -18,19 +18,24 @@
     })();
   </script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <script type="module">
-    // Mermaid renders ```mermaid``` fenced blocks as diagrams. Kept as ESM import
-    // so the library is only loaded on this page and tree-shaken if not used.
-    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
-    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default';
-    mermaid.initialize({ startOnLoad: false, theme, securityLevel: 'loose' });
-    window.__mermaid = mermaid;
+  <!-- Mermaid self-hosted from /static/vendor/ to avoid third-party CDN
+       blocking (Firefox Enhanced Tracking Protection blocks some jsdelivr
+       requests). UMD bundle exposes window.mermaid. -->
+  <script src="/static/vendor/mermaid.min.js"></script>
+  <script>
+    (function() {
+      const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default';
+      if (window.mermaid) {
+        window.mermaid.initialize({ startOnLoad: false, theme, securityLevel: 'loose' });
+      }
+    })();
   </script>
 </head>
 <body class="readme-page">
   <nav class="readme-nav">
     <a href="/">&larr; Tilbage til søgning</a>
     <a class="secondary" href="https://github.com/Doessing/nosynabo" target="_blank" rel="noopener">Se på GitHub</a>
+    <span class="version-tag" title="{{VERSION}}">{{VERSION}}</span>
   </nav>
   <div class="readme-content">
     <div id="readme-loading">Indlæser README…</div>
@@ -61,8 +66,8 @@
           div.textContent = code.textContent;
           code.parentElement.replaceWith(div);
         });
-        if (window.__mermaid) {
-          window.__mermaid.run({ querySelector: '.mermaid' }).catch(err => {
+        if (window.mermaid) {
+          window.mermaid.run({ querySelector: '.mermaid' }).catch(err => {
             console.warn('Mermaid render failed:', err);
           });
         }
