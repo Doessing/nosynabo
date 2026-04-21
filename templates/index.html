@@ -108,10 +108,11 @@ function toggleSidebarMobile() {
     if (btn) btn.setAttribute('aria-expanded', 'true');
   }
 }
-// Some mobile browsers (observed on MIUI/Chrome on Xiaomi) fail to fire a
-// synthetic click after touchstart if any micro-movement occurs, because the
-// gesture detector claims the sequence. Bind touchend explicitly as a
-// fallback and guard against double-fire with a short cooldown.
+// Some mobile browsers fail to fire a synthetic click after touchstart if
+// any micro-movement occurs, because the gesture detector claims the
+// sequence. Reproduced on both Android Chrome (Xiaomi/MIUI) and iOS Safari
+// (iPhone 16). Bind touchend explicitly as a fallback and guard against
+// double-fire with a short cooldown.
 (function bindSidebarToggleRobust() {
   let lastFire = 0;
   function fire(e) {
