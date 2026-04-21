@@ -1,6 +1,8 @@
-# nosy-neighbour
+# nosynabo
 
 Look up Danish property records from [tinglysning.dk](https://www.tinglysning.dk) via a map-based browser UI or a command-line tool.
+
+> Originally forked from [jkiddo/nosyneighbour](https://github.com/jkiddo/nosyneighbour) and has since diverged significantly. Licensed under **AGPL-3.0** (see [LICENSE](LICENSE)).
 
 Given any freeform Danish address you get:
 
@@ -27,7 +29,7 @@ pip install -r requirements.txt
 python server.py
 
 # CLI
-python nosy_neighbour.py "Stålhøjen 24, 8240 Risskov"
+python nosy_neighbour.py "Eksempelvej 1, 1234 Byby"
 ```
 
 ---
@@ -36,10 +38,10 @@ python nosy_neighbour.py "Stålhøjen 24, 8240 Risskov"
 
 ```bash
 # Build
-docker build -t nosy-neighbour .
+docker build -t nosynabo .
 
 # Run (web UI on http://localhost:8000)
-docker run -p 8000:8000 nosy-neighbour
+docker run -p 8000:8000 nosynabo
 ```
 
 ### Production deployment (Docker Compose + Caddy)
@@ -78,12 +80,12 @@ Open `http://localhost:8000` in a browser.
 ### Example
 
 ```bash
-curl "http://localhost:8000/api/lookup?q=Stålhøjen+24+Risskov"
+curl "http://localhost:8000/api/lookup?q=Eksempelvej+1+Byby"
 ```
 
 ```json
 {
-  "adresse": "Stålhøjen 24, 8240 Risskov",
+  "adresse": "Eksempelvej 1, 1234 Byby",
   "ejendomstype": "Ejerlejlighed",
   "matrikler": [{ "matrikelnummer": "...", "landsejerlavnavn": "..." }],
   "vurdering": {
@@ -133,7 +135,7 @@ Returns the same JSON payload as `GET /api/lookup`.
 ```json
 {
   "mcpServers": {
-    "nosy-neighbour": {
+    "nosynabo": {
       "url": "http://localhost:8000/mcp"
     }
   }
@@ -143,7 +145,7 @@ Returns the same JSON payload as `GET /api/lookup`.
 ### Claude Code
 
 ```bash
-claude mcp add --transport http nosy-neighbour http://localhost:8000/mcp
+claude mcp add --transport http nosynabo http://localhost:8000/mcp
 ```
 
 ---
@@ -154,7 +156,7 @@ claude mcp add --transport http nosy-neighbour http://localhost:8000/mcp
 usage: nosy_neighbour.py [-h] [--isin PRIORITY:ISIN] address [address ...]
 
 positional arguments:
-  address              Freeform address, e.g. "Molsvej 38 6950 Ringkøbing"
+  address              Freeform address, e.g. "Eksempelvej 1 1234 Byby"
 
 options:
   --isin PRIORITY:ISIN  ISIN for a specific mortgage, as priority:ISIN
@@ -162,3 +164,15 @@ options:
 ```
 
 When an ISIN is supplied for a mortgage, the loan type is resolved definitively from ESMA FIRDS instead of estimated from rate statistics.
+
+---
+
+## License
+
+Copyright (C) 2026 Doessing.
+
+This program is free software: you can redistribute it and/or modify it under the terms of the **GNU Affero General Public License** as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. See [LICENSE](LICENSE) for the full text.
+
+If you run a modified version of this software as a network service, the AGPL requires you to offer the source of your modifications to its users.
+
+Portions originate from [jkiddo/nosyneighbour](https://github.com/jkiddo/nosyneighbour).
