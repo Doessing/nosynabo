@@ -173,6 +173,34 @@
                 defaultPrevented: false,
                 extra: chain,
               });
+              // Direct check: does body.sidebar-open #sidebar actually apply?
+              try {
+                var bodyCls = document.body.className;
+                var sbEl = document.getElementById('sidebar');
+                var matches = sbEl && sbEl.matches ? sbEl.matches('body.sidebar-open #sidebar') : null;
+                // Use getMatchedCSSRules if available (it's not in modern browsers)
+                // Instead, test the selector directly and also read inline style.
+                var inlineTransform = sbEl ? sbEl.style.transform : null;
+                var inlineCssText = sbEl ? sbEl.style.cssText : null;
+                // Force a reflow and re-read transform
+                var forcedReflow = sbEl ? sbEl.offsetWidth : -1;
+                var cs2 = sbEl ? window.getComputedStyle(sbEl) : null;
+                send('_selector_check', {
+                  target: 'body.sidebar-open-match',
+                  path: 'bodyCls=' + bodyCls + ' matches=' + matches + ' inlineTransform=' + inlineTransform + ' postReflow=' + (cs2 ? cs2.transform : 'n/a'),
+                  defaultPrevented: false,
+                  extra: {
+                    bodyClassList: Array.prototype.slice.call(document.body.classList),
+                    inlineCssText: inlineCssText,
+                    htmlClassList: Array.prototype.slice.call(document.documentElement.classList),
+                    htmlDataTheme: document.documentElement.getAttribute('data-theme'),
+                    bodyDataTheme: document.body.getAttribute('data-theme'),
+                    mqMatches: window.matchMedia('(max-width: 767px), (max-height: 500px) and (max-width: 900px)').matches,
+                  },
+                });
+              } catch (e) {
+                send('_selector_check_error', {target: String(e.message), path: '', defaultPrevented: false});
+              }
             }
             return r;
           } catch (e) {
