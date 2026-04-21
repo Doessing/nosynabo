@@ -119,7 +119,7 @@ def _fetch_dst_rates(months: list[str]) -> dict:
             {"code": "LAANSTR", "values": ["ALLE"]},
             {"code": "Tid", "values": months},
         ],
-    })
+    }, timeout=15)
     resp.raise_for_status()
     data = resp.json()
     values = data["dataset"]["value"]
@@ -220,7 +220,7 @@ def lookup_isin(isin: str) -> dict | None:
         "q": f"isin:{isin}",
         "wt": "json",
         "rows": 1,
-    })
+    }, timeout=10)
     resp.raise_for_status()
     data = resp.json()
 
@@ -308,6 +308,12 @@ def get_loan_type_info(rate: float, isin: str | None = None, alias: str | None =
 
 
 class TinglysningClient:
+    # Upstream tinglysning.dk has been observed to hang for minutes on
+    # individual requests. Cap every call so one slow property doesn't tie
+    # up a worker forever, but keep the read budget generous (45 s) so we
+    # don't falsely give up on a property that's just slow.
+    _TIMEOUT = (10, 45)  # (connect, read) seconds
+
     def __init__(self):
         self.session = requests.Session()
         self.session.headers.update({
@@ -320,7 +326,7 @@ class TinglysningClient:
     def _get_token(self) -> str:
         """Fetch and solve an ALTCHA challenge; reuse within the same session."""
         if self._token is None:
-            resp = self.session.get(f"{BASE_URL}/altcha/fetchChallenge")
+            resp = self.session.get(f"{BASE_URL}/altcha/fetchChallenge", timeout=self._TIMEOUT)
             resp.raise_for_status()
             self._token = _solve_altcha(resp.json())
         return self._token
@@ -338,7 +344,7 @@ class TinglysningClient:
             "side": 1,
             "fuzzy": "true",
             "supplerendebynavn": "true",
-        })
+        }, timeout=self._TIMEOUT)
         resp.raise_for_status()
         return resp.json()
 
@@ -367,16 +373,25 @@ class TinglysningClient:
         - Empty/non-JSON body: ALTCHA token expired; discard cached token and retry.
         """
         params = dict(params)
+        last_status: int = 0
+        last_text: str = ""
         for attempt in range(2):
             params["token"] = self._get_token()
             try:
-                resp = self.session.get(url, params=params)
+                resp = self.session.get(url, params=params, timeout=self._TIMEOUT)
             except requests.exceptions.ConnectionError:
                 # Stale keep-alive connection — retry will open a fresh one
                 if attempt == 1:
                     raise
                 continue
+            except requests.exceptions.Timeout:
+                # Read/connect timeout — retry once with a fresh connection
+                if attempt == 1:
+                    raise
+                continue
             resp.raise_for_status()
+            last_status = resp.status_code
+            last_text = resp.text
             if resp.content and resp.text.strip():
                 try:
                     return resp.json()
@@ -384,16 +399,18 @@ class TinglysningClient:
                     pass
             # Empty or non-JSON body — token is stale, discard and retry once
             self._token = None
-            if attempt == 1:
-                raise RuntimeError(
-                    f"Invalid response from tinglysning.dk after token refresh "
-                    f"(status {resp.status_code}): {resp.text[:200] or '(empty)'}"
-                )
+        # Both attempts exhausted without a JSON payload.
+        raise RuntimeError(
+            f"Invalid response from tinglysning.dk after token refresh "
+            f"(status {last_status}): {last_text[:200] or '(empty)'}"
+        )
 
     def search_property(self, postnummer: str, vejnavn: str, husnummer: str) -> list[dict]:
         """Search for a property by address components.
 
-        Returns a list of matching properties with 'uuid', 'adresse', and 'bog' fields.
+        Returns a list of matching properties with 'uuid', 'adresse', and 'bog'
+        fields. Returns an empty list when tinglysning.dk reports success but
+        has no match (items can be null in that case).
         """
         data = self._get_json(f"{BASE_URL}/ejendomsoeg/soeg", {
             "postnummer": postnummer,
@@ -402,7 +419,7 @@ class TinglysningClient:
         })
         if data.get("statuskode") != 0:
             raise RuntimeError(f"Search failed: {data.get('statustekst')}")
-        return data["items"]
+        return data.get("items") or []
 
     def get_tingbog(self, uuid: str) -> dict:
         """Fetch the full tingbog (property register) for a property UUID.
@@ -418,15 +435,97 @@ class TinglysningClient:
         _tingbog_cache[uuid] = data
         return data
 
-    def lookup_address(self, postnummer: str, vejnavn: str, husnummer: str) -> dict:
+    def lookup_address(
+        self,
+        postnummer: str,
+        vejnavn: str,
+        husnummer: str,
+        *,
+        matrikelnr: str | None = None,
+        ejerlavskode: str | None = None,
+    ) -> dict:
         """Full lookup: search for a property and return its tingbog data.
 
         Combines search_property() and get_tingbog() into a single call.
+
+        If the exact-address search returns no result (which happens for
+        andelsboliger / almennyttige ejendomme where the individual dwelling
+        has no separate tingbog), we fall back to asking DAWA for every
+        address sharing the same matrikel, then try each as a tinglysning
+        search target until one resolves. That lets us surface the parent
+        foundation/association's tingbog without scanning a whole street.
+
+        The returned tingbog gets a `_matrikel_fallback` dict with details
+        about why it was used, or None when the exact address matched.
         """
         items = self.search_property(postnummer, vejnavn, husnummer)
-        if not items:
-            raise RuntimeError("No property found for the given address")
-        return self.get_tingbog(items[0]["uuid"])
+        if items:
+            tingbog = self.get_tingbog(items[0]["uuid"])
+            tingbog["_matrikel_fallback"] = None
+            return tingbog
+
+        # No exact match — try to find the owning tingbog via matrikel.
+        if matrikelnr and ejerlavskode:
+            fallback = self._find_tingbog_by_matrikel(
+                matrikelnr, ejerlavskode,
+            )
+            if fallback is not None:
+                tingbog, parent_adresse = fallback
+                tingbog["_matrikel_fallback"] = {
+                    "matrikelnr": matrikelnr,
+                    "ejerlavskode": ejerlavskode,
+                    "parent_adresse": parent_adresse,
+                }
+                return tingbog
+
+        raise RuntimeError("No property found for the given address")
+
+    def _find_tingbog_by_matrikel(
+        self,
+        matrikelnr: str,
+        ejerlavskode: str,
+    ) -> tuple[dict, str] | None:
+        """Find the tingbog for a matrikel by asking DAWA for its addresses.
+
+        DAWA knows every adgangsadresse tied to a given (ejerlav, matrikel)
+        pair. We iterate those addresses, ask tinglysning.dk for each, and
+        return the first hit whose tingbog actually covers our matrikel.
+        Far more targeted than scanning every tingbog on the street.
+
+        Returns (tingbog_data, parent_address_label) or None.
+        """
+        r = requests.get(
+            "https://api.dataforsyningen.dk/adgangsadresser",
+            params={
+                "ejerlavkode": ejerlavskode,
+                "matrikelnr": matrikelnr,
+                "struktur": "mini",
+            },
+            timeout=10,
+        )
+        r.raise_for_status()
+        candidates = r.json() or []
+        for c in candidates:
+            postnr = c.get("postnr")
+            vejnavn = c.get("vejnavn")
+            husnr = c.get("husnr")
+            if not (postnr and vejnavn and husnr):
+                continue
+            try:
+                items = self.search_property(postnr, vejnavn, husnr)
+            except RuntimeError:
+                continue
+            if not items:
+                continue
+            try:
+                tingbog = self.get_tingbog(items[0]["uuid"])
+            except RuntimeError:
+                continue
+            for mat in tingbog.get("matrikler") or []:
+                if (mat.get("matrikelnummer") == matrikelnr
+                        and str(mat.get("landsejerlavkode")) == ejerlavskode):
+                    return tingbog, c.get("betegnelse", "")
+        return None
 
     def lookup(self, query: str) -> dict:
         """Look up a property by freeform address string.
