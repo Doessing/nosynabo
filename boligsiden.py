@@ -26,6 +26,7 @@ from resolver import ResolvedAddress
 log = logging.getLogger(__name__)
 
 BOLIGSIDEN_ADDRESS_URL = "https://api.boligsiden.dk/addresses/{uuid}"
+BOLIGSIDEN_LISTING_BASE = "https://www.boligsiden.dk/adresse/{slug}"
 
 # Translate Boligsiden's registration types to user-facing Danish.
 REGISTRATION_TYPE_LABELS = {
@@ -37,28 +38,34 @@ REGISTRATION_TYPE_LABELS = {
 
 # Keyed by adresse_uuid. 10 minutes is plenty — registrations are append-only
 # public records and this primarily absorbs rapid re-queries.
-_SALES_CACHE: TTLCache[str, list[dict[str, Any]]] = TTLCache(maxsize=2048, ttl=600)
+_SALES_CACHE: TTLCache[str, dict[str, Any]] = TTLCache(maxsize=2048, ttl=600)
 
 
-def fetch_sales_history(resolved: ResolvedAddress) -> list[dict[str, Any]]:
-    """Return enriched sale registrations for an address, newest first.
+def _fetch_address_data(uuid: str) -> dict[str, Any]:
+    """Fetch and cache the full Boligsiden /addresses/{uuid} response payload.
 
-    Each entry has `date`, `amount`, `area`, `type`, `typeLabel` (Danish) and
-    derived `perAreaPrice` (kr/m²). Empty list if Boligsiden has no data.
+    Returns a dict with keys:
+      ``registrations``  — enriched sale registrations (newest first)
+      ``is_on_market``   — True if the property is currently listed for sale
+      ``boligsiden_url`` — direct link to the Boligsiden listing (or None)
     """
-    uuid = resolved.adresse_uuid
     cached = _SALES_CACHE.get(uuid)
     if cached is not None:
         return cached
 
     resp = requests.get(BOLIGSIDEN_ADDRESS_URL.format(uuid=uuid), timeout=10)
     if resp.status_code == 404:
-        _SALES_CACHE[uuid] = []
-        return []
+        result: dict[str, Any] = {
+            "registrations": [],
+            "is_on_market": False,
+            "boligsiden_url": None,
+        }
+        _SALES_CACHE[uuid] = result
+        return result
     resp.raise_for_status()
     data = resp.json()
-    regs = data.get("registrations") or []
 
+    regs = data.get("registrations") or []
     enriched: list[dict[str, Any]] = []
     for r in regs:
         amount = r.get("amount")
@@ -76,13 +83,26 @@ def fetch_sales_history(resolved: ResolvedAddress) -> list[dict[str, Any]]:
         })
     # Sort newest first (ISO YYYY-MM-DD so lexicographic sort is correct).
     enriched.sort(key=lambda e: e.get("date") or "", reverse=True)
-    _SALES_CACHE[uuid] = enriched
-    return enriched
+
+    is_on_market: bool = bool(data.get("isOnMarket"))
+    slug: str | None = data.get("slug")
+    boligsiden_url: str | None = (
+        BOLIGSIDEN_LISTING_BASE.format(slug=slug) if is_on_market and slug else None
+    )
+
+    result = {
+        "registrations": enriched,
+        "is_on_market": is_on_market,
+        "boligsiden_url": boligsiden_url,
+    }
+    _SALES_CACHE[uuid] = result
+    return result
 
 
 def get_sales_history(resolved: ResolvedAddress) -> dict[str, Any]:
-    """Top-level: resolved address -> {uuid, registrations}."""
+    """Top-level: resolved address -> {uuid, registrations, is_on_market, boligsiden_url}."""
+    data = _fetch_address_data(resolved.adresse_uuid)
     return {
         "uuid": resolved.adresse_uuid,
-        "registrations": fetch_sales_history(resolved),
+        **data,
     }
