@@ -21,6 +21,8 @@ Given any freeform Danish address you get:
 - **Estimated equity** (friværdi) — valuation minus total registered mortgage principals
 - **Mortgages and liens** (hæftelser) — including estimated loan type (F-kort / F1 / F3 / F5) for variable-rate realkreditlån
 - **Easements** (servitutter)
+- **Historical sale prices** (salgshistorik) — previous transactions with price, area and kr/m² via Boligsiden
+- **Active listing indicator** — if the property is currently for sale on Boligsiden, the address becomes a direct link to the listing and is marked with a "Til salg" badge
 
 Loan type estimation works by matching the registered coupon rate against [Nationalbanken rate statistics](https://www.dst.dk/da/Statistik/emner/penge-og-kapitalmarked/renter/realkreditrenter) (DST table DNRNURI). When an ISIN is known, the type is confirmed definitively via [ESMA FIRDS](https://registers.esma.europa.eu).
 
@@ -142,7 +144,7 @@ nosynabo composes data from several public Danish registers. None of them requir
 | **Datafordeler BBR** | Not currently used by the UI, but `resolve()` returns the `adgang_uuid` which is BBR's primary key | None |
 | **tinglysning.dk ejendomsoeg** | Physical property records: owners, valuation, mortgages, easements | ALTCHA |
 | **tinglysning.dk andelsoeg** | Cooperative-share records: individual member's mortgages on their share | ALTCHA |
-| **Boligsiden** | Historical sale prices for private homes | None |
+| **Boligsiden** | Historical sale prices; active listing status and link | None |
 | **DST DNRNURI** | Nationalbanken rate statistics (for loan-type estimation) | None |
 | **ESMA FIRDS** | Definitive loan-type via ISIN lookup (when the caller provides an ISIN) | None |
 

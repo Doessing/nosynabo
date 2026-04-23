@@ -139,6 +139,32 @@ body {
   font-weight: 700;
   color: #111;
   margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.address-for-sale-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: rgba(0,0,0,0.25);
+  text-underline-offset: 2px;
+  word-break: break-word;
+}
+.address-for-sale-link:hover {
+  text-decoration-color: #b8860b;
+}
+.for-sale-badge {
+  display: inline-block;
+  background: #ffe066;
+  color: #333;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 3px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .property-type {
   font-size: 13px;
@@ -450,6 +476,9 @@ td:last-child { font-weight: 500; }
 [data-theme="dark"] .card-title { color: #9ca3af; }
 [data-theme="dark"] .address-header { color: #e0e0e0; }
 [data-theme="dark"] .property-type { color: #9ca3af; }
+[data-theme="dark"] .address-for-sale-link { color: inherit; text-decoration-color: rgba(255,255,255,0.3); }
+[data-theme="dark"] .address-for-sale-link:hover { text-decoration-color: #ffe066; }
+[data-theme="dark"] .for-sale-badge { background: #ffe066; color: #1a1a1a; }
 [data-theme="dark"] td:first-child { color: #9ca3af; }
 [data-theme="dark"] td:last-child { color: #e0e0e0; }
 [data-theme="dark"] .entry-label { color: #e0e0e0; }

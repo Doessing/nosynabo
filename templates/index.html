@@ -490,9 +490,12 @@ function renderEntryCards(container, d, salesHistory) {
   }
 
   if (hasEjendomsbog) {
+    const forSaleHtml = (salesHistory && salesHistory.is_on_market && salesHistory.boligsiden_url)
+      ? '<a href="' + esc(salesHistory.boligsiden_url) + '" target="_blank" rel="noopener noreferrer" class="address-for-sale-link">' + esc(d.adresse) + '</a><span class="for-sale-badge">Til salg</span>'
+      : esc(d.adresse);
     container.appendChild(html(`
       <div class="card">
-        <div class="address-header">${esc(d.adresse)}</div>
+        <div class="address-header">${forSaleHtml}</div>
         <div class="property-type">${esc(d.ejendomstype)}</div>
       </div>
     `));
