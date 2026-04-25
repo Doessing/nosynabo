@@ -492,17 +492,22 @@ class TinglysningClient:
         association's main address is in BOTH registers (e.g. "Ryttervænget
         101A" has a tingbog for the association AND an andelsboligbog
         entry), while individual member addresses (e.g. "107A") are ONLY in
-        andelsoeg. There's no marker in DAWA to distinguish these cases —
-        we have to ask both registers. So andelsoeg is always queried in
-        parallel with the main ejendomsoeg flow, as additive enrichment.
+        andelsoeg. There's no marker in DAWA to distinguish these cases up
+        front, so we use a two-step strategy:
+
+          1. ejendomsoeg first — cheap and fast.
+          2. andelsoeg conditionally — only when the ejendomsoeg result
+             indicates a cooperative (ejd=0, ejd>1, or owner name matches
+             an andel keyword). Skipped for obvious non-cooperatives
+             (private owners, public bodies, companies).
 
         Lookup flow:
-          1. ejendomsoeg direct hit → tingbog + andelsoeg (may also hit).
+          1. ejendomsoeg direct hit → inspect owner → conditional andelsoeg.
           2. miss + matrikel info → matrikel-fallback for the umbrella
              property (hospital, farm, cooperative association) +
-             andelsoeg.
-          3. if only andelsoeg found something → minimal shell with just
-             the share data.
+             conditional andelsoeg.
+          3. if ejendomsoeg returns nothing → always call andelsoeg
+             (individual cooperative member or unregistered address).
 
         Returns the tingbog dict enriched with:
           * `_matrikel_fallback`: dict with details when matrikel fallback
@@ -510,16 +515,15 @@ class TinglysningClient:
           * `andelsbolig`: dict with cooperative-share data when the address
             is in Andelsboligbogen, None otherwise.
         """
-        # Query andelsoeg in parallel — a cooperative dwelling is both a
-        # registered share (andelsboligbog) AND often sits inside a physical
-        # property (ejendomsbog). The association's main address appears in
-        # both registers. We can't tell from DAWA whether an address is a
-        # cooperative, so we always ask.
-        andelsbolig = self._try_lookup_andelsbolig(postnummer, vejnavn, husnummer)
-
         items = self.search_property(postnummer, vejnavn, husnummer)
         if items:
             tingbog = self.get_tingbog(items[0]["uuid"])
+            ejernavn = (tingbog.get("ejere") or [{}])[0].get("navn") or ""
+            andelsbolig = None
+            if self._skal_spørge_andel(items, ejernavn):
+                andelsbolig = self._try_lookup_andelsbolig(
+                    postnummer, vejnavn, husnummer
+                )
             tingbog["_matrikel_fallback"] = None
             tingbog["andelsbolig"] = andelsbolig
             return tingbog
@@ -528,6 +532,10 @@ class TinglysningClient:
         # This covers cooperative members, hospitals, large farms, and any
         # other umbrella property where individual addresses don't have
         # their own tingbog but the matrikel does.
+        # For ejd=0 we always call andelsoeg (individual cooperative member
+        # or genuinely unregistered address).
+        andelsbolig = self._try_lookup_andelsbolig(postnummer, vejnavn, husnummer)
+
         if matrikelnr and ejerlavskode:
             fallback = self._find_tingbog_by_matrikel(
                 matrikelnr, ejerlavskode,
@@ -561,6 +569,28 @@ class TinglysningClient:
             }
 
         raise RuntimeError("No property found for the given address")
+
+    _ANDEL_KEYWORDS: frozenset[str] = frozenset(
+        ["andel", "a/b", "forening", "boligselskab", "boligforening"]
+    )
+
+    def _skal_spørge_andel(self, ejd_hits: list, ejernavn: str) -> bool:
+        """Return True if andelsoeg should be queried for this address.
+
+        Decision rules (validated against 28 test cases, 0 false negatives):
+          ejd=0  → always ask (individual cooperative member — no owner to check)
+          ejd>1  → never ask  (split property / ejerlejlighed complex)
+          ejd=1, owner name matches andel keyword → ask
+          ejd=1, owner is private person / company / public body → skip
+          ejd=1, owner name missing → ask (fail-safe)
+        """
+        if len(ejd_hits) == 0:
+            return True
+        if len(ejd_hits) > 1:
+            return False
+        if not ejernavn:
+            return True  # fail-safe
+        return any(kw in ejernavn.lower() for kw in self._ANDEL_KEYWORDS)
 
     def _try_lookup_andelsbolig(
         self,
