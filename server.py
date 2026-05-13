@@ -22,6 +22,7 @@ from boligsiden import get_sales_history
 from resolver import resolve as resolve_address, ResolveError
 
 DAWA_REVERSE_URL = "https://api.dataforsyningen.dk/adgangsadresser/reverse"
+DAWA_JORDSTYKKER_URL = "https://api.dataforsyningen.dk/jordstykker"
 
 log = logging.getLogger(__name__)
 
@@ -283,6 +284,55 @@ def resolve_endpoint(q: str = Query(...)):
     except requests.RequestException as e:
         log.warning("resolver upstream error: %s", e)
         raise HTTPException(status_code=502, detail="DAWA unreachable")
+
+
+@app.get("/api/matrikel-geometry")
+def matrikel_geometry(
+    matrikelnr: str = Query(..., min_length=1),
+    ejerlavskode: str | None = Query(None),
+    ejerlavsnavn: str | None = Query(None),
+):
+    """Return GeoJSON polygon(s) for one matrikel on WGS84 (EPSG:4326)."""
+    matrikelnr = matrikelnr.strip()
+    ejerlavskode = (ejerlavskode or "").strip() or None
+    ejerlavsnavn = (ejerlavsnavn or "").strip() or None
+    if not ejerlavskode and not ejerlavsnavn:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide either ejerlavskode or ejerlavsnavn",
+        )
+    params = {
+        "matrikelnr": matrikelnr,
+        "format": "geojson",
+        "srid": 4326,
+        "per_side": 1,
+    }
+    if ejerlavskode:
+        params["ejerlavkode"] = ejerlavskode
+    else:
+        params["ejerlavsnavn"] = ejerlavsnavn
+    try:
+        resp = requests.get(
+            DAWA_JORDSTYKKER_URL,
+            params=params,
+            timeout=10,
+        )
+    except requests.RequestException as e:
+        log.warning("matrikel-geometry upstream error: %s", e)
+        raise HTTPException(status_code=502, detail="DAWA unreachable")
+    try:
+        resp.raise_for_status()
+        payload = resp.json()
+    except (requests.RequestException, ValueError):
+        raise HTTPException(status_code=502, detail="DAWA returned invalid response")
+
+    features = payload.get("features") or []
+    if not features:
+        raise HTTPException(status_code=404, detail="Matrikel geometry not found")
+    return {
+        "type": "FeatureCollection",
+        "features": [features[0]],
+    }
 
 
 @app.get("/", response_class=HTMLResponse)

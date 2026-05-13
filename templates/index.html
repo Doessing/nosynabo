@@ -43,9 +43,11 @@
 
 <div id="sidebar">
   <div id="search-box">
-    <input id="search-input" type="text" placeholder="Søg adresse… (fx Stålhøjen 24 Risskov)" autocomplete="off"/>
-    <button class="history-btn" onclick="toggleHistory()" title="Søgehistorik" aria-label="Søgehistorik"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></button>
-    <button class="darkmode-btn" id="darkmode-btn" onclick="toggleTheme()" title="Skift tema" aria-label="Skift tema"></button>
+    <div id="search-row">
+      <input id="search-input" type="text" placeholder="Søg adresse… (fx Stålhøjen 24 Risskov)" autocomplete="off"/>
+      <button class="history-btn" onclick="toggleHistory()" title="Søgehistorik" aria-label="Søgehistorik"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></button>
+      <button class="darkmode-btn" id="darkmode-btn" onclick="toggleTheme()" title="Skift tema" aria-label="Skift tema"></button>
+    </div>
     <div id="suggestions" style="display:none"></div>
     <div id="history-dropdown"></div>
   </div>
@@ -71,10 +73,145 @@
 <script>
 // ── Map setup ──────────────────────────────────────────────────────────────
 const map = L.map('map').setView([56.0, 10.5], 7);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
-  maxZoom: 19,
-}).addTo(map);
+const BASEMAPS = {
+  osm: {
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
+    maxZoom: 19,
+  },
+  topo: {
+    url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    attribution: 'Map data: © OpenStreetMap contributors, map style: © OpenTopoMap',
+    maxZoom: 17,
+  },
+};
+
+const basemapLayers = Object.fromEntries(
+  Object.entries(BASEMAPS).map(([k, cfg]) => [k, L.tileLayer(cfg.url, cfg)])
+);
+
+let currentBasemap = localStorage.getItem('nosy-basemap') || 'osm';
+if (!basemapLayers[currentBasemap]) currentBasemap = 'osm';
+basemapLayers[currentBasemap].addTo(map);
+
+const mapControl = L.control({ position: 'topright' });
+mapControl.onAdd = function () {
+  const el = L.DomUtil.create('div', 'leaflet-control nosy-map-control');
+  el.innerHTML = `
+    <label class="map-control-item" for="basemap-select">Kortlag
+      <select id="basemap-select" aria-label="Vælg kortlag">
+        <option value="osm">Standard kort</option>
+        <option value="topo">Topografisk kort</option>
+      </select>
+    </label>
+    <label class="map-control-item map-toggle" for="toggle-matrikler">
+      <input id="toggle-matrikler" type="checkbox" checked>
+      Vis matrikler
+    </label>
+  `;
+  L.DomEvent.disableClickPropagation(el);
+  L.DomEvent.disableScrollPropagation(el);
+  return el;
+};
+mapControl.addTo(map);
+
+const matrikelLayer = L.layerGroup().addTo(map);
+const matrikelGeometryCache = new Map();
+const MATRIKEL_COLORS = ['#dc2626', '#2563eb', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#be123c', '#0369a1', '#65a30d', '#9333ea'];
+let showMatrikler = localStorage.getItem('nosy-show-matrikler') !== '0';
+let matrikelSyncToken = 0;
+
+function setBasemap(key) {
+  if (!basemapLayers[key] || key === currentBasemap) return;
+  map.removeLayer(basemapLayers[currentBasemap]);
+  basemapLayers[key].addTo(map);
+  currentBasemap = key;
+  localStorage.setItem('nosy-basemap', key);
+}
+
+function matrikelColorForIndex(i) {
+  return MATRIKEL_COLORS[i % MATRIKEL_COLORS.length];
+}
+
+async function fetchMatrikelGeometry(matrikelnummer, ejerlavskode, ejerlavsnavn) {
+  const key = `${matrikelnummer}|${ejerlavskode || ''}|${ejerlavsnavn || ''}`;
+  if (matrikelGeometryCache.has(key)) return matrikelGeometryCache.get(key);
+
+  const params = new URLSearchParams({ matrikelnr: matrikelnummer });
+  if (ejerlavskode) {
+    params.set('ejerlavskode', ejerlavskode);
+  } else if (ejerlavsnavn) {
+    params.set('ejerlavsnavn', ejerlavsnavn);
+  }
+
+  const res = await fetch(`/api/matrikel-geometry?${params.toString()}`);
+  if (!res.ok) throw new Error(`Matrikel lookup failed (${res.status})`);
+  const geojson = await res.json();
+  matrikelGeometryCache.set(key, geojson);
+  return geojson;
+}
+
+async function syncMatrikelOverlay() {
+  const token = ++matrikelSyncToken;
+  matrikelLayer.clearLayers();
+  if (!showMatrikler) return;
+
+  const tasks = [];
+  entries.forEach((entry, idx) => {
+    const mats = entry?.data?.matrikler || [];
+    mats.forEach(m => {
+      const matrikelnummer = (m.matrikelnummer || '').trim();
+      const ejerlavskode = String(m.landsejerlavkode || '').trim();
+      const ejerlavsnavn = (m.landsejerlavnavn || '').trim();
+      if (!matrikelnummer) return;
+      tasks.push({ entry, idx, matrikelnummer, ejerlavskode, ejerlavsnavn });
+    });
+  });
+
+  const settled = await Promise.allSettled(tasks.map(async t => ({
+    ...t,
+    geojson: await fetchMatrikelGeometry(t.matrikelnummer, t.ejerlavskode, t.ejerlavsnavn),
+  })));
+  if (token !== matrikelSyncToken) return;
+
+  settled.forEach(result => {
+    if (result.status !== 'fulfilled') return;
+    const { entry, idx, matrikelnummer, ejerlavsnavn, geojson } = result.value;
+    const color = matrikelColorForIndex(idx);
+    const label = entry?.label || 'Ukendt adresse';
+    const popup = `<strong>#${idx + 1}</strong> ${esc(label)}<br>Matrikel: <strong>${esc(matrikelnummer)}</strong><br>${esc(ejerlavsnavn || 'Ukendt ejerlav')}`;
+    L.geoJSON(geojson, {
+      style: {
+        color,
+        weight: 2,
+        opacity: 0.95,
+        fillColor: color,
+        fillOpacity: 0.14,
+      },
+      onEachFeature: (_, layer) => layer.bindPopup(popup),
+    }).addTo(matrikelLayer);
+  });
+}
+
+function initMapControls() {
+  const basemapSelect = document.getElementById('basemap-select');
+  if (basemapSelect) {
+    basemapSelect.value = currentBasemap;
+    basemapSelect.addEventListener('change', e => setBasemap(e.target.value));
+  }
+
+  const matrikelToggle = document.getElementById('toggle-matrikler');
+  if (matrikelToggle) {
+    matrikelToggle.checked = showMatrikler;
+    matrikelToggle.addEventListener('change', e => {
+      showMatrikler = !!e.target.checked;
+      localStorage.setItem('nosy-show-matrikler', showMatrikler ? '1' : '0');
+      syncMatrikelOverlay();
+    });
+  }
+}
+
+initMapControls();
 
 // entries: [{ label, lat, lng, data, error, loading, marker }]
 const entries = [];
@@ -331,6 +468,7 @@ async function loadEntry(entry) {
       }
       entry.loading = false;
       renderSidebar();
+      syncMatrikelOverlay();
       return;
     }
 
@@ -375,6 +513,7 @@ function removeEntry(i) {
     e.marker.on('click', () => scrollToEntry(j));
   });
   renderSidebar();
+  syncMatrikelOverlay();
 }
 
 // Remove all results: cards, map markers, and the search input. Preserves
@@ -388,6 +527,7 @@ function clearResults() {
   if (sugg) sugg.style.display = 'none';
   map.setView([56.0, 10.5], 7);
   renderSidebar();
+  syncMatrikelOverlay();
 }
 
 function scrollToEntry(idx) {
