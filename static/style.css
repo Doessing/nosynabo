@@ -35,6 +35,12 @@ body {
   border-bottom: 1px solid #eee;
   position: relative;
   flex-shrink: 0;  /* never shrink the search row when results overflow */
+  display: block;
+}
+
+#search-row {
+  display: flex;
+  gap: 8px;
 }
 
 #search-input {
@@ -287,7 +293,6 @@ td:last-child { font-weight: 500; }
 .darkmode-btn:hover { background: #f3f4f6; color: #111; }
 
 /* ── History button ── */
-#search-box { display: flex; gap: 8px; }
 #search-input { flex: 1; min-width: 0; }
 .history-btn {
   width: 44px; flex-shrink: 0;
@@ -297,6 +302,46 @@ td:last-child { font-weight: 500; }
   font-size: 16px; color: #6b7280; transition: all .2s;
 }
 .history-btn:hover { background: #f3f4f6; color: #111; border-color: #bbb; }
+
+.nosy-map-control {
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.15);
+  padding: 8px 10px;
+  margin-top: 56px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.map-control-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #4b5563;
+}
+
+#basemap-select {
+  min-width: 152px;
+  max-width: 200px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  color: #111;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.map-toggle {
+  white-space: nowrap;
+}
+
+.map-toggle input {
+  width: 14px;
+  height: 14px;
+}
 
 #history-dropdown {
   position: absolute;
@@ -462,6 +507,9 @@ td:last-child { font-weight: 500; }
 [data-theme="dark"] .history-btn:hover { background: #2d3748; color: #e0e0e0; border-color: #4b5563; }
 [data-theme="dark"] .darkmode-btn { background: #1a1a2e; border-color: #374151; color: #9ca3af; }
 [data-theme="dark"] .darkmode-btn:hover { background: #2d3748; color: #e0e0e0; }
+[data-theme="dark"] .map-control-item { color: #9ca3af; }
+[data-theme="dark"] .nosy-map-control { background: #16213e; border-color: #374151; box-shadow: 0 2px 8px rgba(0,0,0,.45); }
+[data-theme="dark"] #basemap-select { background: #1a1a2e; border-color: #374151; color: #e0e0e0; }
 [data-theme="dark"] #suggestions,
 [data-theme="dark"] #history-dropdown { background: #1e293b; border-color: #374151; }
 [data-theme="dark"] .suggestion:hover,
@@ -615,6 +663,7 @@ td:last-child { font-weight: 500; }
 
   /* Tighter padding inside the drawer so cards don't waste horizontal space. */
   #results { padding: 12px; }
+  .nosy-map-control { margin-top: 0; display: none; }
 
   /* Footer buttons with a proper tap target. */
   #sidebar-footer { padding: 12px 14px; min-height: 56px; }
