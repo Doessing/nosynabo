@@ -572,7 +572,7 @@ function renderSidebar() {
       }
     } else if (entry.error) {
       section.appendChild(html(`
-        <div style="color:#dc2626;padding:4px 0 10px">
+        <div class="text-danger" style="padding:4px 0 10px">
           ${esc(entry.error)}
           <button class="retry-btn" onclick="retryEntry(${i})">Prøv igen</button>
         </div>
@@ -601,9 +601,9 @@ function renderEntryCards(container, d, salesHistory) {
     // we show both the association's property and the member's individual
     // share below.
     container.appendChild(html(`
-      <div class="card" style="border-left:3px solid #2563eb;background:#eff6ff">
-        <div class="card-title" style="color:#1d4ed8">Andelsbolig</div>
-        <div style="font-size:13px;line-height:1.5">
+      <div class="card card-intro-andel">
+        <div class="card-title">Andelsbolig</div>
+        <div class="card-blurb">
           Denne adresse er registreret i <strong>Andelsboligbogen</strong>.
           ${hasEjendomsbog
             ? "Nedenfor vises både andelsforeningens fælles ejendom (fra Ejendomsbogen) og andelshaverens individuelle hæftelser (fra Andelsboligbogen)."
@@ -616,9 +616,9 @@ function renderEntryCards(container, d, salesHistory) {
     // or an address that shares its matrikel with a parent property.
     const fb = d._matrikel_fallback;
     container.appendChild(html(`
-      <div class="card" style="border-left:3px solid #d97706;background:#fffbeb">
-        <div class="card-title" style="color:#92400e">Fællesejendom / paraplyejendom</div>
-        <div style="font-size:13px;line-height:1.5">
+      <div class="card card-intro-paraply">
+        <div class="card-title">Fællesejendom / paraplyejendom</div>
+        <div class="card-blurb">
           Den søgte adresse har ikke sin egen tingbog. Tingbogen nedenfor dækker
           hele ejendommen (matrikel <strong>${esc(fb.matrikelnr)}</strong>,
           ejerlav ${esc(fb.ejerlavskode)}), som typisk er en institution,
@@ -666,7 +666,6 @@ function renderEntryCards(container, d, salesHistory) {
     }, 0);
     const frivaerdi = v.ejendomsvaerdi - totalDebt;
     const frivaerdiPct = v.ejendomsvaerdi > 0 ? Math.round(frivaerdi / v.ejendomsvaerdi * 100) : null;
-    const frivaerdiColor = frivaerdi < 0 ? '#dc2626' : '#166534';
     const assumptionLabels = { interest_only: 'Afdragsfri', deferred_10y: '10 år afdragsfri', repayment: 'Med afdrag' };
     const debtRow = totalDebt > 0 ? `
       <tr><td colspan="2">
@@ -675,10 +674,10 @@ function renderEntryCards(container, d, salesHistory) {
         </div>
       </td></tr>
       <tr><td>Samlet pant (est.)</td><td>${fmt(Math.round(totalDebt))} kr.</td></tr>
-      <tr><td>Friværdi (est.)</td><td style="color:${frivaerdiColor};font-weight:700">${fmt(Math.round(frivaerdi))} kr.${frivaerdiPct !== null ? ` <span style="color:#6b7280;font-weight:400">(${frivaerdiPct}%)</span>` : ''}</td></tr>
+      <tr><td>Friværdi (est.)</td><td class="${frivaerdi < 0 ? 'value-negative' : 'value-positive'}">${fmt(Math.round(frivaerdi))} kr.${frivaerdiPct !== null ? ` <span class="value-subtle">(${frivaerdiPct}%)</span>` : ''}</td></tr>
     ` : `
-      <tr><td>Samlet pant</td><td style="color:#6b7280;font-style:italic">— Ingen gæld —</td></tr>
-      <tr><td>Friværdi</td><td style="color:#166534;font-weight:700">${fmt(v.ejendomsvaerdi)} kr. <span style="color:#6b7280;font-weight:400">(100%)</span></td></tr>
+      <tr><td>Samlet pant</td><td class="text-muted text-italic">— Ingen gæld —</td></tr>
+      <tr><td>Friværdi</td><td class="value-positive">${fmt(v.ejendomsvaerdi)} kr. <span class="value-subtle">(100%)</span></td></tr>
     `;
     container.appendChild(html(`
       <div class="card">
@@ -714,17 +713,17 @@ function renderEntryCards(container, d, salesHistory) {
     const a = d.andelsbolig;
     const shareLiens = a.haeftelser || [];
     const header = hasEjendomsbog
-      ? 'Andelshaverens hæftelser <span style="color:#6b7280;font-weight:400;font-size:11px">(Andelsboligbogen — på andelen)</span>'
-      : 'Hæftelser <span style="color:#6b7280;font-weight:400;font-size:11px">(Andelsboligbogen)</span>';
+      ? 'Andelshaverens hæftelser <span class="card-note">(Andelsboligbogen — på andelen)</span>'
+      : 'Hæftelser <span class="card-note">(Andelsboligbogen)</span>';
     if (shareLiens.length) {
-      const card = html(`<div class="card" style="border-left:3px solid #2563eb"><div class="card-title">${header}</div></div>`);
+      const card = html(`<div class="card card-andel-liens"><div class="card-title">${header}</div></div>`);
       shareLiens.forEach(h => card.appendChild(renderMortgage(h)));
       container.appendChild(card);
     } else {
       container.appendChild(html(`
-        <div class="card" style="border-left:3px solid #2563eb">
+        <div class="card card-andel-liens">
           <div class="card-title">${header}</div>
-          <div style="font-size:13px;color:#6b7280">Ingen hæftelser tinglyst på andelen.</div>
+          <div class="card-blurb text-muted">Ingen hæftelser tinglyst på andelen.</div>
         </div>
       `));
     }
@@ -757,7 +756,7 @@ function renderEntryCards(container, d, salesHistory) {
     }).join('');
     container.appendChild(html(`
       <div class="card">
-        <div class="card-title">Salgshistorik <span style="color:#6b7280;font-weight:400;font-size:11px">(via Boligsiden)</span></div>
+        <div class="card-title">Salgshistorik <span class="card-note">(via Boligsiden)</span></div>
         <table class="sales-history">
           <thead><tr><th>Dato</th><th style="text-align:right">Pris</th><th style="text-align:right">Pris/m²</th><th>Type</th></tr></thead>
           ${rows}
