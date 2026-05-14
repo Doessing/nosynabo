@@ -347,12 +347,19 @@ const input = document.getElementById('search-input');
 const suggestionsEl = document.getElementById('suggestions');
 let debounceTimer;
 let currentSuggestions = [];
+let suggestController = null;
+let suggestSeq = 0;
 
 input.addEventListener('input', () => {
   clearTimeout(debounceTimer);
   const q = input.value.trim();
-  if (q.length < 3) { hideSuggestions(); return; }
-  debounceTimer = setTimeout(() => fetchSuggestions(q), 200);
+  if (q.length < 2) {
+    if (suggestController) suggestController.abort();
+    suggestSeq++;  // invalidate any in-flight response
+    hideSuggestions();
+    return;
+  }
+  debounceTimer = setTimeout(() => fetchSuggestions(q), 120);
 });
 
 input.addEventListener('keydown', e => {
@@ -368,8 +375,21 @@ document.addEventListener('click', e => {
 
 async function fetchSuggestions(q) {
   hideHistory();
-  const res = await fetch(`/api/autocomplete?q=${encodeURIComponent(q)}`);
-  currentSuggestions = await res.json();
+  // Cancel any in-flight request so a slow earlier response can't overwrite a newer one.
+  if (suggestController) suggestController.abort();
+  suggestController = new AbortController();
+  const mySeq = ++suggestSeq;
+  let data;
+  try {
+    const res = await fetch(`/api/autocomplete?q=${encodeURIComponent(q)}`, { signal: suggestController.signal });
+    data = await res.json();
+  } catch (err) {
+    if (err.name === 'AbortError') return;
+    return;
+  }
+  // Drop result if a newer request has been kicked off in the meantime.
+  if (mySeq !== suggestSeq) return;
+  currentSuggestions = data;
   if (!currentSuggestions.length) { hideSuggestions(); return; }
   suggestionsEl.innerHTML = currentSuggestions
     .map((s, i) => `<div class="suggestion" data-i="${i}">${esc(s.label)}</div>`)
@@ -385,6 +405,14 @@ function hideSuggestions() {
 }
 
 function selectSuggestion(s) {
+  if (s.type === 'vejnavn') {
+    // Refine: put street name in the input so user can type house number.
+    input.value = s.vejnavn + ' ';
+    input.focus();
+    hideSuggestions();
+    fetchSuggestions(input.value.trim());
+    return;
+  }
   input.value = '';
   hideSuggestions();
   if (entries.length >= 10) return;
