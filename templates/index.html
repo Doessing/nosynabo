@@ -48,7 +48,7 @@
       <button class="history-btn" onclick="toggleHistory()" title="Søgehistorik" aria-label="Søgehistorik"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></button>
       <button class="darkmode-btn" id="darkmode-btn" onclick="toggleTheme()" title="Skift tema" aria-label="Skift tema"></button>
     </div>
-    <div id="suggestions" style="display:none"></div>
+    <div id="suggestions" hidden></div>
     <div id="history-dropdown"></div>
   </div>
   <div id="results">
@@ -374,14 +374,14 @@ async function fetchSuggestions(q) {
   suggestionsEl.innerHTML = currentSuggestions
     .map((s, i) => `<div class="suggestion" data-i="${i}">${esc(s.label)}</div>`)
     .join('');
-  suggestionsEl.style.display = 'block';
+  suggestionsEl.hidden = false;
   suggestionsEl.querySelectorAll('.suggestion').forEach(el => {
     el.addEventListener('click', () => selectSuggestion(currentSuggestions[+el.dataset.i]));
   });
 }
 
 function hideSuggestions() {
-  suggestionsEl.style.display = 'none';
+  suggestionsEl.hidden = true;
 }
 
 function selectSuggestion(s) {
@@ -524,7 +524,7 @@ function clearResults() {
   const input = document.getElementById('search-input');
   if (input) input.value = '';
   const sugg = document.getElementById('suggestions');
-  if (sugg) sugg.style.display = 'none';
+  if (sugg) sugg.hidden = true;
   map.setView([56.0, 10.5], 7);
   renderSidebar();
   syncMatrikelOverlay();
@@ -572,7 +572,7 @@ function renderSidebar() {
       }
     } else if (entry.error) {
       section.appendChild(html(`
-        <div class="text-danger" style="padding:4px 0 10px">
+        <div class="error-banner">
           ${esc(entry.error)}
           <button class="retry-btn" onclick="retryEntry(${i})">Prøv igen</button>
         </div>
@@ -758,7 +758,7 @@ function renderEntryCards(container, d, salesHistory) {
       <div class="card">
         <div class="card-title">Salgshistorik <span class="card-note">(via Boligsiden)</span></div>
         <table class="sales-history">
-          <thead><tr><th>Dato</th><th style="text-align:right">Pris</th><th style="text-align:right">Pris/m²</th><th>Type</th></tr></thead>
+          <thead><tr><th>Dato</th><th class="num">Pris</th><th class="num">Pris/m²</th><th>Type</th></tr></thead>
           ${rows}
         </table>
       </div>
