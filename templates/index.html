@@ -767,7 +767,7 @@ function renderEntryCards(container, d, salesHistory) {
 }
 
 function renderMortgage(h) {
-  const creditors = (h.kreditorer || []).join(', ');
+  const creditors = (h.kreditorer || []).map(esc).join(', ');
   const isVariable = h.fastvariabel === 'variabel';
   const regDate = h.alias ? h.alias.split('-')[0] : null;
   const lti = h.loan_type_info;
