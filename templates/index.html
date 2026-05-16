@@ -703,7 +703,7 @@ function renderSidebar() {
       // look up but DAWA still knows about.
       if (entry.lookupMode === 'matrikel') {
         const oisLink = entry.bfenummer
-          ? `<br><br><a href="https://www.ois.dk/Search/Property/Bfe/${encodeURIComponent(entry.bfenummer)}" target="_blank" rel="noopener noreferrer">Slå op på OIS via BFE-nummeret &rarr;</a>`
+          ? `<br><br><a href="https://www.ois.dk/search/${encodeURIComponent(entry.bfenummer)}/sfe" target="_blank" rel="noopener noreferrer">Slå op på OIS via BFE-nummeret &rarr;</a>`
           : '';
         section.appendChild(html(`
           <div class="card card-intro-paraply">
