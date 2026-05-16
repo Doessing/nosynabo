@@ -41,6 +41,24 @@ Current findings:
 - Anonymous `unsecrest` access does not expose historical owners.
 - UUIDs are stable across `unsecrest` and `rest`, enabling a future bridge flow.
 
+## F2 colors - Design system + self-hosted font
+
+Short name: `colors-f2` (MERGED #13)
+
+Scope:
+- Introduce CSS custom-property design tokens with two themes:
+  Copper Slate (light) and Slate Dusk (dark).
+- Replace ad-hoc inline color/background styles with semantic helper classes.
+- Self-host Inter variable font (woff2 upright + italic) - no Google Fonts in prod.
+- Subtle in-palette special card variants for Andelsbolig and paraplyejendom.
+
+Follow-up: `cleanup-f2-followup` (PR #14)
+- Remove dead CSS, replace remaining inline styles, tighten dark muted contrast.
+- XSS hardening: escape creditor names in mortgage rendering.
+- Autocomplete: lower threshold (3 to 2 chars), shorter debounce, vejnavn
+  refinement flow, race-safety via AbortController + sequence-id,
+  stale-keep-alive retry on DAWA, Cache-Control on /api/autocomplete.
+
 ## Future request - Luftfoto/satellit basemap
 
 Short name: `aerial-basemap`

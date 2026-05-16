@@ -154,24 +154,37 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 @app.get("/api/autocomplete")
-def autocomplete(q: str = Query(...)):
+def autocomplete(q: str = Query(...), response: Response = None):
     try:
         results = _client.autocomplete_address(q)
     except requests.RequestException as e:
         log.warning("autocomplete upstream error: %s", e)
         raise HTTPException(status_code=502, detail="DAWA unreachable")
-    return [
-        {
-            "label": r["forslagstekst"],
-            "postnr": d["postnr"],
-            "vejnavn": d["vejnavn"],
-            "husnr": d["husnr"],
-            "lat": d["y"],
-            "lng": d["x"],
-        }
-        for r in results
-        if (d := r.get("data", {})) and d.get("postnr") and d.get("vejnavn") and d.get("husnr")
-    ]
+    # Address suggestions are public and stable; let CF and the browser cache
+    # them briefly so repeated typing of the same prefix is instant.
+    if response is not None:
+        response.headers["Cache-Control"] = "public, max-age=300"
+    out = []
+    for r in results:
+        d = r.get("data", {})
+        if d.get("postnr") and d.get("vejnavn") and d.get("husnr"):
+            out.append({
+                "type": "adresse",
+                "label": r["forslagstekst"],
+                "postnr": d["postnr"],
+                "vejnavn": d["vejnavn"],
+                "husnr": d["husnr"],
+                "lat": d["y"],
+                "lng": d["x"],
+            })
+        elif r.get("type") == "vejnavn" and d.get("navn"):
+            # Street-name suggestion: user picks it and we refine to addresses.
+            out.append({
+                "type": "vejnavn",
+                "label": r["forslagstekst"],
+                "vejnavn": d["navn"],
+            })
+    return out
 
 
 @app.get("/api/reverse")

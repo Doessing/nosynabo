@@ -48,7 +48,7 @@
       <button class="history-btn" onclick="toggleHistory()" title="Søgehistorik" aria-label="Søgehistorik"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></button>
       <button class="darkmode-btn" id="darkmode-btn" onclick="toggleTheme()" title="Skift tema" aria-label="Skift tema"></button>
     </div>
-    <div id="suggestions" style="display:none"></div>
+    <div id="suggestions" hidden></div>
     <div id="history-dropdown"></div>
   </div>
   <div id="results">
@@ -347,12 +347,19 @@ const input = document.getElementById('search-input');
 const suggestionsEl = document.getElementById('suggestions');
 let debounceTimer;
 let currentSuggestions = [];
+let suggestController = null;
+let suggestSeq = 0;
 
 input.addEventListener('input', () => {
   clearTimeout(debounceTimer);
   const q = input.value.trim();
-  if (q.length < 3) { hideSuggestions(); return; }
-  debounceTimer = setTimeout(() => fetchSuggestions(q), 200);
+  if (q.length < 2) {
+    if (suggestController) suggestController.abort();
+    suggestSeq++;  // invalidate any in-flight response
+    hideSuggestions();
+    return;
+  }
+  debounceTimer = setTimeout(() => fetchSuggestions(q), 120);
 });
 
 input.addEventListener('keydown', e => {
@@ -368,23 +375,44 @@ document.addEventListener('click', e => {
 
 async function fetchSuggestions(q) {
   hideHistory();
-  const res = await fetch(`/api/autocomplete?q=${encodeURIComponent(q)}`);
-  currentSuggestions = await res.json();
+  // Cancel any in-flight request so a slow earlier response can't overwrite a newer one.
+  if (suggestController) suggestController.abort();
+  suggestController = new AbortController();
+  const mySeq = ++suggestSeq;
+  let data;
+  try {
+    const res = await fetch(`/api/autocomplete?q=${encodeURIComponent(q)}`, { signal: suggestController.signal });
+    data = await res.json();
+  } catch (err) {
+    if (err.name === 'AbortError') return;
+    return;
+  }
+  // Drop result if a newer request has been kicked off in the meantime.
+  if (mySeq !== suggestSeq) return;
+  currentSuggestions = data;
   if (!currentSuggestions.length) { hideSuggestions(); return; }
   suggestionsEl.innerHTML = currentSuggestions
     .map((s, i) => `<div class="suggestion" data-i="${i}">${esc(s.label)}</div>`)
     .join('');
-  suggestionsEl.style.display = 'block';
+  suggestionsEl.hidden = false;
   suggestionsEl.querySelectorAll('.suggestion').forEach(el => {
     el.addEventListener('click', () => selectSuggestion(currentSuggestions[+el.dataset.i]));
   });
 }
 
 function hideSuggestions() {
-  suggestionsEl.style.display = 'none';
+  suggestionsEl.hidden = true;
 }
 
 function selectSuggestion(s) {
+  if (s.type === 'vejnavn') {
+    // Refine: put street name in the input so user can type house number.
+    input.value = s.vejnavn + ' ';
+    input.focus();
+    hideSuggestions();
+    fetchSuggestions(input.value.trim());
+    return;
+  }
   input.value = '';
   hideSuggestions();
   if (entries.length >= 10) return;
@@ -524,7 +552,7 @@ function clearResults() {
   const input = document.getElementById('search-input');
   if (input) input.value = '';
   const sugg = document.getElementById('suggestions');
-  if (sugg) sugg.style.display = 'none';
+  if (sugg) sugg.hidden = true;
   map.setView([56.0, 10.5], 7);
   renderSidebar();
   syncMatrikelOverlay();
@@ -572,7 +600,7 @@ function renderSidebar() {
       }
     } else if (entry.error) {
       section.appendChild(html(`
-        <div class="text-danger" style="padding:4px 0 10px">
+        <div class="error-banner">
           ${esc(entry.error)}
           <button class="retry-btn" onclick="retryEntry(${i})">Prøv igen</button>
         </div>
@@ -758,7 +786,7 @@ function renderEntryCards(container, d, salesHistory) {
       <div class="card">
         <div class="card-title">Salgshistorik <span class="card-note">(via Boligsiden)</span></div>
         <table class="sales-history">
-          <thead><tr><th>Dato</th><th style="text-align:right">Pris</th><th style="text-align:right">Pris/m²</th><th>Type</th></tr></thead>
+          <thead><tr><th>Dato</th><th class="num">Pris</th><th class="num">Pris/m²</th><th>Type</th></tr></thead>
           ${rows}
         </table>
       </div>
@@ -767,7 +795,7 @@ function renderEntryCards(container, d, salesHistory) {
 }
 
 function renderMortgage(h) {
-  const creditors = (h.kreditorer || []).join(', ');
+  const creditors = (h.kreditorer || []).map(esc).join(', ');
   const isVariable = h.fastvariabel === 'variabel';
   const regDate = h.alias ? h.alias.split('-')[0] : null;
   const lti = h.loan_type_info;
