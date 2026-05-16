@@ -336,18 +336,32 @@ class TinglysningClient:
         """Autocomplete a Danish address using DAWA.
 
         Returns a list of suggestions with 'tekst' (text) and 'data' fields.
+
+        Retries once on stale keep-alive connection / read timeout so users
+        editing the search field don't see a multi-second pause when DAWA's
+        idle connection has been dropped server-side.
         """
-        resp = self.session.get(DAWA_URL, params={
+        params = {
             "q": query,
             "caretpos": len(query),
-            "type": "adgangsadresse",
             "per_side": 20,
             "side": 1,
             "fuzzy": "true",
             "supplerendebynavn": "true",
-        }, timeout=self._TIMEOUT)
-        resp.raise_for_status()
-        return resp.json()
+        }
+        # Shorter timeout than the default tinglysning one: autocomplete is
+        # interactive, so we'd rather fail fast and let the next keystroke retry.
+        timeout = (3, 5)
+        for attempt in range(2):
+            try:
+                resp = self.session.get(DAWA_URL, params=params, timeout=timeout)
+                resp.raise_for_status()
+                return resp.json()
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+                if attempt == 1:
+                    raise
+                continue
+        return []
 
     def resolve_address(self, query: str) -> tuple[str, str, str]:
         """Resolve a freeform address string into (postnummer, vejnavn, husnummer).

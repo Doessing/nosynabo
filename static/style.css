@@ -95,7 +95,6 @@ body {
 #suggestions {
   position: absolute;
   left: 14px; right: 14px;
-  background: #fff;
   background: var(--surface);
   border: 1px solid var(--border);
   border-top: none;
@@ -228,8 +227,8 @@ td:last-child { font-weight: 500; }
 .sales-history td:first-child { color: var(--text-muted); width: auto; font-variant-numeric: tabular-nums; }
 .sales-history td:last-child { font-weight: 400; white-space: normal; }
 .sales-history th { text-align: left; font-size: 11px; color: var(--text-muted); font-weight: 500; border-bottom: 1px solid var(--border); }
-[data-theme="dark"] .sales-history th { border-bottom-color: var(--border); }
-.sales-history td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.sales-history td.num,
+.sales-history th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* ── Mortgage items ── */
 .mortgage {
@@ -484,6 +483,7 @@ td:last-child { font-weight: 500; }
 .value-positive { color: var(--success); font-weight: 700; }
 .value-negative { color: var(--danger); font-weight: 700; }
 .value-subtle { color: var(--text-muted); font-weight: 400; }
+.error-banner { color: var(--danger); padding: 4px 0 10px; }
 .clear-btn[hidden] { display: none; }
 
 /* ── Readme viewer page ── */
@@ -579,7 +579,7 @@ td:last-child { font-weight: 500; }
   --surface: #0f1823;
   --surface-soft: #15202d;
   --text-main: #eff5fd;
-  --text-muted: #d8e4f2;
+  --text-muted: #9fb1ca;
   --border: #253447;
   --border-strong: #3c5269;
   --accent: #c08a6f;
