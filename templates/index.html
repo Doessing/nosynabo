@@ -166,6 +166,17 @@ async function syncMatrikelOverlay() {
       if (!matrikelnummer) return;
       tasks.push({ entry, idx, matrikelnummer, ejerlavskode, ejerlavsnavn });
     });
+    // Matrikel-click entries that haven't yet received their tingbog still
+    // carry the clicked parcel's GeoJSON from /api/click. Paint it eagerly so
+    // the user sees their selection while the slow tingbog lookup runs.
+    if (entry.lookupMode === 'matrikel' && !entry.data && entry.clickGeometry) {
+      const color = matrikelColorForIndex(idx);
+      const popup = `<strong>#${idx + 1}</strong> ${esc(entry.label)}<br>Henter tingbog…`;
+      L.geoJSON(entry.clickGeometry, {
+        style: { color, weight: 2, opacity: 0.95, fillColor: color, fillOpacity: 0.14, dashArray: '4 4' },
+        onEachFeature: (_, layer) => layer.bindPopup(popup),
+      }).addTo(matrikelLayer);
+    }
   });
 
   const settled = await Promise.allSettled(tasks.map(async t => ({
@@ -335,11 +346,21 @@ function numberedIcon(n) {
 map.on('click', async e => {
   if (entries.length >= 10) return;
   const { lat, lng } = e.latlng;
-  const res = await fetch(`/api/reverse?lat=${lat}&lng=${lng}`);
+  // Map clicks are spatial, not textual: ask DAWA which jordstykke
+  // (cadastral parcel) the click falls inside, then drive the tinglysning
+  // lookup off that matrikel. Avoids the 500 m haversine guess that could
+  // otherwise resolve a click on parcel A to an address on neighbouring
+  // parcel B.
+  let res;
+  try {
+    res = await fetch(`/api/click?lat=${lat}&lng=${lng}`);
+  } catch {
+    return;
+  }
   if (!res.ok) return;
-  const addr = await res.json();
+  const hit = await res.json();
   input.value = '';
-  addAddress(addr.label, addr.lat, addr.lng);
+  addMatrikel(hit);
 });
 
 // ── Autocomplete ───────────────────────────────────────────────────────────
@@ -436,6 +457,7 @@ async function addAddress(label, lat, lng) {
     label, lat, lng,
     data: null, error: null, loading: true, status: null,
     marker, salesHistory: null, salesLoading: true,
+    lookupMode: 'address',
   };
   entries.push(entry);
   renderSidebar();
@@ -455,6 +477,56 @@ async function addAddress(label, lat, lng) {
       entry.salesLoading = false;
       renderSidebar();
     });
+}
+
+// Add an entry resolved from a map click (matrikel-first flow). The click
+// gave us the cadastral parcel under the cursor; tinglysning is then looked
+// up via that matrikel. Sales history is skipped because there is no
+// definitive single address tied to a raw matrikel click.
+async function addMatrikel(hit) {
+  const matrikelnr = (hit.matrikelnr || '').trim();
+  const ejerlavkode = String(hit.ejerlavkode || '').trim();
+  const ejerlavsnavn = (hit.ejerlavsnavn || '').trim();
+  if (!matrikelnr || !ejerlavkode) return;
+
+  const provisionalLabel = ejerlavsnavn
+    ? `Matrikel ${matrikelnr}, ${ejerlavsnavn}`
+    : `Matrikel ${matrikelnr}`;
+  // Reject duplicates by matrikel identity rather than label, because the
+  // label is rewritten to the parent address once the tingbog comes back.
+  if (entries.some(e => e.lookupMode === 'matrikel'
+        && e.matrikelnr === matrikelnr
+        && e.ejerlavkode === ejerlavkode)) {
+    openSidebarMobile();
+    return;
+  }
+  openSidebarMobile();
+
+  const idx = entries.length;
+  const lat = hit.click_lat;
+  const lng = hit.click_lng;
+  const marker = L.marker([lat, lng], { icon: numberedIcon(idx + 1) }).addTo(map);
+  marker.on('click', () => { openSidebarMobile(); scrollToEntry(idx); });
+
+  const entry = {
+    label: provisionalLabel, lat, lng,
+    data: null, error: null, loading: true, status: null,
+    marker, salesHistory: null, salesLoading: false,
+    lookupMode: 'matrikel',
+    matrikelnr, ejerlavkode, ejerlavsnavn,
+    bfenummer: hit.bfenummer || null,
+    clickGeometry: hit.geometry || null,
+  };
+  entries.push(entry);
+  renderSidebar();
+  scrollToEntry(idx);
+  // Draw the clicked parcel immediately so the user sees something while the
+  // (slow) tingbog lookup runs. syncMatrikelOverlay will redraw the full set
+  // once tingbog data arrives.
+  syncMatrikelOverlay();
+
+  await loadEntry(entry);
+  scrollToEntry(entries.indexOf(entry));
 }
 
 // Fetch /api/lookup for an entry, with one automatic retry on 5xx/network
@@ -477,7 +549,10 @@ async function loadEntry(entry) {
   for (let attempt = 0; attempt < 2; attempt++) {
     let res = null, err = null, body = null;
     try {
-      res = await fetch(`/api/lookup?q=${encodeURIComponent(entry.label)}`);
+      const url = entry.lookupMode === 'matrikel'
+        ? `/api/lookup-matrikel?matrikelnr=${encodeURIComponent(entry.matrikelnr)}&ejerlavskode=${encodeURIComponent(entry.ejerlavkode)}`
+        : `/api/lookup?q=${encodeURIComponent(entry.label)}`;
+      res = await fetch(url);
     } catch (e) {
       err = e;
     }
@@ -487,9 +562,19 @@ async function loadEntry(entry) {
         entry.data = await res.json();
         entry.error = null;
         entry.status = 'ok';
-        saveToHistory(entry.label, entry.lat, entry.lng);
+        if (entry.lookupMode === 'matrikel') {
+          // Promote the parent address as the entry label if we found one.
+          const parent = entry.data?._matrikel_fallback?.parent_adresse;
+          if (parent) {
+            entry.label = `${parent} (via matrikel ${entry.matrikelnr})`;
+          } else if (entry.data?.adresse) {
+            entry.label = `${entry.data.adresse} (via matrikel ${entry.matrikelnr})`;
+          }
+        } else {
+          saveToHistory(entry.label, entry.lat, entry.lng);
+        }
         const owners = (entry.data.ejere || []).map(e => `${esc(e.navn)} (${esc(e.andel)})`).join('<br>');
-        entry.marker.bindPopup(`<div class="popup-address">${esc(entry.data.adresse)}</div><div class="popup-owners">${owners}</div>`);
+        entry.marker.bindPopup(`<div class="popup-address">${esc(entry.data.adresse || entry.label)}</div><div class="popup-owners">${owners}</div>`);
       } catch {
         entry.error = 'Uventet svar fra serveren.';
         entry.status = 'error';
