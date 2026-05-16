@@ -351,20 +351,14 @@ map.on('click', async e => {
   // lookup off that matrikel. Avoids the 500 m haversine guess that could
   // otherwise resolve a click on parcel A to an address on neighbouring
   // parcel B.
-  console.log('[click] map click', { lat, lng });
   let res;
   try {
     res = await fetch(`/api/click?lat=${lat}&lng=${lng}`);
-  } catch (err) {
-    console.warn('[click] /api/click network error', err);
+  } catch {
     return;
   }
-  if (!res.ok) {
-    console.warn('[click] /api/click HTTP', res.status);
-    return;
-  }
+  if (!res.ok) return;
   const hit = await res.json();
-  console.log('[click] /api/click hit', hit.matrikelnr, hit.ejerlavkode, 'has_geometry=', !!hit.geometry);
   input.value = '';
   addMatrikel(hit);
 });
@@ -449,9 +443,13 @@ function selectSuggestion(s) {
 
 // ── Multi-address management ───────────────────────────────────────────────
 async function addAddress(label, lat, lng) {
-  // Bug 9: reject duplicates (same label already in the list)
-  if (entries.some(e => e.label === label)) {
-    openSidebarMobile();  // still surface existing entry on duplicate tap
+  // Bug 9: reject duplicates (same label already in the list). Scroll the
+  // existing entry into view rather than silently returning, so the search
+  // still gives visual feedback.
+  const dupIdx = entries.findIndex(e => e.label === label);
+  if (dupIdx !== -1) {
+    openSidebarMobile();
+    scrollToEntry(dupIdx);
     return;
   }
   openSidebarMobile();
@@ -493,22 +491,19 @@ async function addMatrikel(hit) {
   const matrikelnr = (hit.matrikelnr || '').trim();
   const ejerlavkode = String(hit.ejerlavkode || '').trim();
   const ejerlavsnavn = (hit.ejerlavsnavn || '').trim();
-  console.log('[addMatrikel] start', { matrikelnr, ejerlavkode, entriesLen: entries.length });
-  if (!matrikelnr || !ejerlavkode) {
-    console.warn('[addMatrikel] rejected: missing matrikelnr or ejerlavkode', hit);
-    return;
-  }
+  if (!matrikelnr || !ejerlavkode) return;
 
   const provisionalLabel = ejerlavsnavn
     ? `Matrikel ${matrikelnr}, ${ejerlavsnavn}`
     : `Matrikel ${matrikelnr}`;
   // Reject duplicates by matrikel identity rather than label, because the
   // label is rewritten to the parent address once the tingbog comes back.
+  // When a duplicate fires, scroll the existing entry into view rather than
+  // returning silently — otherwise the click looks like it did nothing.
   const dupIdx = entries.findIndex(e => e.lookupMode === 'matrikel'
         && e.matrikelnr === matrikelnr
         && e.ejerlavkode === ejerlavkode);
   if (dupIdx !== -1) {
-    console.log('[addMatrikel] dedup hit at idx', dupIdx, '— scrolling to existing entry');
     openSidebarMobile();
     scrollToEntry(dupIdx);
     return;
@@ -531,7 +526,6 @@ async function addMatrikel(hit) {
     clickGeometry: hit.geometry || null,
   };
   entries.push(entry);
-  console.log('[addMatrikel] entry pushed, idx=', idx, 'entries=', entries.length);
   renderSidebar();
   scrollToEntry(idx);
   // Draw the clicked parcel immediately so the user sees something while the
@@ -540,7 +534,6 @@ async function addMatrikel(hit) {
   syncMatrikelOverlay();
 
   await loadEntry(entry);
-  console.log('[addMatrikel] loadEntry done, status=', entry.status, 'uuid=', entry.data?.uuid);
   scrollToEntry(entries.indexOf(entry));
 }
 
