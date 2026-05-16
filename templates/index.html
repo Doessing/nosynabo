@@ -606,6 +606,9 @@ async function loadEntry(entry) {
     entry.status = 'error';
     entry.loading = false;
     renderSidebar();
+    // Keep the clicked parcel on the map even when the tingbog lookup
+    // failed — matrikel-mode entries still carry useful identity info.
+    syncMatrikelOverlay();
     return;
   }
 }
@@ -684,12 +687,33 @@ function renderSidebar() {
         section.appendChild(html('<div class="spinner">Henter fra tinglysning.dk…</div>'));
       }
     } else if (entry.error) {
-      section.appendChild(html(`
-        <div class="error-banner">
-          ${esc(entry.error)}
-          <button class="retry-btn" onclick="retryEntry(${i})">Prøv igen</button>
-        </div>
-      `));
+      // Matrikel-mode entries with an error still carry useful info from
+      // /api/click (matrikelnr, ejerlav, bfenummer). Show that as a card so
+      // the click isn't wasted — common case is unbebyggede marker without
+      // an adgangsadresse, which tinglysning.dk's address-only API can't
+      // look up but DAWA still knows about.
+      if (entry.lookupMode === 'matrikel') {
+        section.appendChild(html(`
+          <div class="card card-intro-paraply">
+            <div class="card-title">Matrikel uden tingbog</div>
+            <div class="card-blurb">
+              <strong>Matrikel ${esc(entry.matrikelnr)}</strong>,
+              ejerlav ${esc(entry.ejerlavsnavn || entry.ejerlavkode)}
+              (kode ${esc(entry.ejerlavkode)}).
+              ${entry.bfenummer ? `BFE-nummer: <strong>${esc(String(entry.bfenummer))}</strong>.` : ''}
+              <br><br>
+              ${esc(entry.error)}
+            </div>
+          </div>
+        `));
+      } else {
+        section.appendChild(html(`
+          <div class="error-banner">
+            ${esc(entry.error)}
+            <button class="retry-btn" onclick="retryEntry(${i})">Prøv igen</button>
+          </div>
+        `));
+      }
     } else if (entry.data) {
       renderEntryCards(section, entry.data, entry.salesHistory);
       if (entry.salesLoading) {

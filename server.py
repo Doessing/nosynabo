@@ -353,9 +353,11 @@ def lookup_matrikel(
         raise HTTPException(
             status_code=404,
             detail=(
-                "Matriklen er registreret men har ingen tingbog. "
-                "Det er typisk vejarealer, vandarealer eller offentlige arealer "
-                "uden selvstændig ejendomsregistrering."
+                "Matriklen kunne ikke kobles til en tingbog. "
+                "Det er typisk arealer uden adgangsadresse — fx ubebyggede "
+                "marker, veje, vandarealer eller fælleslodder. Matriklen "
+                "har stadig en ejer, men tinglysning.dk's API kræver en "
+                "adresse for at slå tingbogen op."
             ),
         )
 
