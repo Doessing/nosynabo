@@ -674,6 +674,83 @@ class TinglysningClient:
                 if (mat.get("matrikelnummer") == matrikelnr
                         and str(mat.get("landsejerlavkode")) == ejerlavskode):
                     return tingbog, c.get("betegnelse", "")
+
+        # SFE fallback: a matrikel without its own adgangsadresse (typical
+        # for marker/enge/skove that share a samlet fast ejendom with a
+        # bebygget naboparcel) cannot be resolved by the loop above. Ask
+        # DAWA's jordstykker endpoint for the matrikel's SFE-nummer, then
+        # iterate adgangsadresser on every sibling matrikel sharing that
+        # SFE. Example: 4e Lintrup By (mark, 0 adresser) shares SFE 5035243
+        # with 9u Klelund By (Grindstedvej 21) — same tingbog, BFE 5035243.
+        try:
+            jr = requests.get(
+                "https://api.dataforsyningen.dk/jordstykker",
+                params={
+                    "ejerlavkode": ejerlavskode,
+                    "matrikelnr": matrikelnr,
+                    "struktur": "flad",
+                },
+                timeout=10,
+            )
+            jr.raise_for_status()
+            js = jr.json() or []
+            sfe = js[0].get("sfeejendomsnr") if js else None
+        except (requests.RequestException, ValueError, IndexError, KeyError):
+            sfe = None
+
+        if not sfe:
+            return None
+
+        try:
+            sr = requests.get(
+                "https://api.dataforsyningen.dk/jordstykker",
+                params={"sfeejendomsnr": sfe, "struktur": "flad"},
+                timeout=10,
+            )
+            sr.raise_for_status()
+            siblings = sr.json() or []
+        except (requests.RequestException, ValueError):
+            return None
+
+        for sib in siblings:
+            sib_mat = sib.get("matrikelnr")
+            sib_ejer = str(sib.get("ejerlavkode") or "")
+            if sib_mat == matrikelnr and sib_ejer == ejerlavskode:
+                continue  # already tried above
+            try:
+                ar = requests.get(
+                    "https://api.dataforsyningen.dk/adgangsadresser",
+                    params={
+                        "ejerlavkode": sib_ejer,
+                        "matrikelnr": sib_mat,
+                        "struktur": "mini",
+                    },
+                    timeout=10,
+                )
+                ar.raise_for_status()
+                sib_addrs = ar.json() or []
+            except requests.RequestException:
+                continue
+            for c in sib_addrs:
+                postnr = c.get("postnr")
+                vejnavn = c.get("vejnavn")
+                husnr = c.get("husnr")
+                if not (postnr and vejnavn and husnr):
+                    continue
+                try:
+                    items = self.search_property(postnr, vejnavn, husnr)
+                except RuntimeError:
+                    continue
+                if not items:
+                    continue
+                try:
+                    tingbog = self.get_tingbog(items[0]["uuid"])
+                except RuntimeError:
+                    continue
+                for mat in tingbog.get("matrikler") or []:
+                    if (mat.get("matrikelnummer") == matrikelnr
+                            and str(mat.get("landsejerlavkode")) == ejerlavskode):
+                        return tingbog, c.get("betegnelse", "")
         return None
 
     def lookup(self, query: str) -> dict:
