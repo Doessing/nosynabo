@@ -23,6 +23,7 @@ from resolver import resolve as resolve_address, ResolveError
 
 DAWA_REVERSE_URL = "https://api.dataforsyningen.dk/adgangsadresser/reverse"
 DAWA_JORDSTYKKER_URL = "https://api.dataforsyningen.dk/jordstykker"
+DAWA_JORDSTYKKER_REVERSE_URL = "https://api.dataforsyningen.dk/jordstykker/reverse"
 
 log = logging.getLogger(__name__)
 
@@ -229,6 +230,144 @@ def reverse(lat: float = Query(...), lng: float = Query(...)):
         "lat": a_lat,
         "lng": a_lng,
     }
+
+
+@app.get("/api/click")
+def click(lat: float = Query(...), lng: float = Query(...), response: Response = None):
+    """Resolve a map click to the matrikel under the cursor.
+
+    Map clicks are inherently spatial: the user pointed at a piece of land,
+    not at an address. Asking DAWA's adgangsadresser/reverse can resolve to
+    a neighbouring address that's geographically close but legally unrelated,
+    so we instead ask DAWA which jordstykke (cadastral parcel) the click
+    falls inside. The matrikel polygon either contains the click or it
+    doesn't — no 500 m fudge factor required.
+
+    Returns matrikelnr + ejerlavkode + ejerlavsnavn + bfenummer + geometry
+    so the frontend can highlight the parcel immediately while the slower
+    tinglysning lookup runs.
+    """
+    try:
+        resp = requests.get(
+            DAWA_JORDSTYKKER_REVERSE_URL,
+            params={"x": lng, "y": lat, "srid": 4326, "format": "geojson"},
+            timeout=(3, 8),
+        )
+    except requests.RequestException as e:
+        log.warning("click jordstykker/reverse upstream error: %s", e)
+        raise HTTPException(status_code=502, detail="DAWA unreachable")
+    if resp.status_code == 404:
+        raise HTTPException(
+            status_code=404,
+            detail="Klikket er uden for dansk territorium eller på et område uden matrikel.",
+        )
+    try:
+        resp.raise_for_status()
+        feature = resp.json()
+    except (requests.RequestException, ValueError):
+        raise HTTPException(status_code=502, detail="DAWA returned invalid response")
+
+    props = feature.get("properties") or {}
+    matrikelnr = (props.get("matrikelnr") or "").strip()
+    ejerlavkode = props.get("ejerlavkode")
+    ejerlavsnavn = (props.get("ejerlavsnavn") or "").strip() or None
+    if not matrikelnr or ejerlavkode is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Matriklen kunne ikke identificeres på det valgte punkt.",
+        )
+
+    # jordstykker/reverse is known to sometimes omit ejerlavsnavn even when
+    # ejerlavkode is set. Do a tiny follow-up lookup to get the human-readable
+    # name — costs ~100 ms and only fires on the click-flow, not address search.
+    if not ejerlavsnavn:
+        try:
+            r2 = requests.get(
+                DAWA_JORDSTYKKER_URL,
+                params={
+                    "ejerlavkode": ejerlavkode,
+                    "matrikelnr": matrikelnr,
+                    "per_side": 1,
+                },
+                timeout=(3, 5),
+            )
+            if r2.ok:
+                arr = r2.json() or []
+                if arr:
+                    el = arr[0].get("ejerlav") or {}
+                    ejerlavsnavn = (el.get("navn") or "").strip() or None
+        except requests.RequestException as e:
+            log.info("click ejerlavsnavn refinement skipped: %s", e)
+            # non-fatal — we can still return matrikel + ejerlavkode
+
+    # Modest cache so re-clicks on the same parcel don't re-query DAWA.
+    # Jordstykke polygons change rarely (cadastral updates are infrequent).
+    if response is not None:
+        response.headers["Cache-Control"] = "public, max-age=300"
+
+    return {
+        "matrikelnr": matrikelnr,
+        "ejerlavkode": str(ejerlavkode),
+        "ejerlavsnavn": ejerlavsnavn,
+        "bfenummer": props.get("bfenummer"),
+        "kommunekode": props.get("kommunekode"),
+        "esrejendomsnr": props.get("esrejendomsnr"),
+        "sfeejendomsnr": props.get("sfeejendomsnr"),
+        "geometry": feature.get("geometry"),
+        "click_lat": lat,
+        "click_lng": lng,
+    }
+
+
+@app.get("/api/lookup-matrikel")
+def lookup_matrikel(
+    matrikelnr: str = Query(..., min_length=1),
+    ejerlavskode: str = Query(..., min_length=1),
+):
+    """Tingbog lookup driven by (matrikelnr, ejerlavskode) — the click path.
+
+    Reuses TinglysningClient._find_tingbog_by_matrikel, which iterates the
+    DAWA adgangsadresser tied to the parcel and returns the first tingbog
+    whose `matrikler` actually contains our parcel. Far more reliable than
+    guessing an address from the click coordinates.
+
+    Returns the same shape as /api/lookup so the existing frontend cards
+    work unchanged. `_matrikel_fallback` is always set (this code path is
+    by definition a matrikel-first lookup).
+    """
+    matrikelnr = matrikelnr.strip()
+    ejerlavskode = ejerlavskode.strip()
+    try:
+        fallback = _client._find_tingbog_by_matrikel(matrikelnr, ejerlavskode)
+    except requests.Timeout:
+        log.warning("lookup-matrikel timeout for %s / %s", matrikelnr, ejerlavskode)
+        raise HTTPException(
+            status_code=504,
+            detail="Tinglysning.dk svarer ikke lige nu — prøv igen om lidt.",
+        )
+    except requests.RequestException as e:
+        log.warning("lookup-matrikel upstream error: %s", e)
+        raise HTTPException(status_code=502, detail="Tinglysning.dk unreachable")
+
+    if fallback is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Matriklen er registreret men har ingen tingbog. "
+                "Det er typisk vejarealer, vandarealer eller offentlige arealer "
+                "uden selvstændig ejendomsregistrering."
+            ),
+        )
+
+    tingbog, parent_adresse = fallback
+    tingbog = _annotate_loan_types(tingbog)
+    tingbog["_matrikel_fallback"] = {
+        "matrikelnr": matrikelnr,
+        "ejerlavskode": ejerlavskode,
+        "parent_adresse": parent_adresse,
+    }
+    tingbog.setdefault("andelsbolig", None)
+    return tingbog
 
 
 @app.get("/api/lookup")
