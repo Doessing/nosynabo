@@ -363,11 +363,18 @@ def lookup_matrikel(
 
     tingbog, parent_adresse = fallback
     tingbog = _annotate_loan_types(tingbog)
-    tingbog["_matrikel_fallback"] = {
-        "matrikelnr": matrikelnr,
-        "ejerlavskode": ejerlavskode,
-        "parent_adresse": parent_adresse,
-    }
+
+    # Don't set _matrikel_fallback from the click path. The address-lookup
+    # path uses that flag to explain why the user got an umbrella tingbog
+    # instead of an address-specific one — but for a matrikel-click the user
+    # explicitly pointed at a parcel, so there's no expectation mismatch to
+    # explain. Triggering the 'Fællesejendom / paraplyejendom' banner here
+    # produced false positives on ordinary villas (e.g. Borgergade 90,
+    # 6752 Glejbjerg) whose matrikel happens to host more than one
+    # adgangsadresse. Leave the flag null and let the UI render the tingbog
+    # plainly. The (via matrikel X) annotation in the entry label already
+    # signals to the user that this came from a click rather than a search.
+    tingbog["_matrikel_fallback"] = None
     tingbog.setdefault("andelsbolig", None)
     return tingbog
 

@@ -563,12 +563,13 @@ async function loadEntry(entry) {
         entry.error = null;
         entry.status = 'ok';
         if (entry.lookupMode === 'matrikel') {
-          // Promote the parent address as the entry label if we found one.
-          const parent = entry.data?._matrikel_fallback?.parent_adresse;
-          if (parent) {
-            entry.label = `${parent} (via matrikel ${entry.matrikelnr})`;
-          } else if (entry.data?.adresse) {
-            entry.label = `${entry.data.adresse} (via matrikel ${entry.matrikelnr})`;
+          // Promote the resolved address as the entry label. Always annotate
+          // with '(via matrikel X)' so the user knows this came from a click
+          // rather than a typed address — the result may be a representative
+          // tingbog if the matrikel hosts more than one ejendom.
+          const addr = entry.data?._matrikel_fallback?.parent_adresse || entry.data?.adresse;
+          if (addr) {
+            entry.label = `${addr} (via matrikel ${entry.matrikelnr})`;
           }
         } else {
           saveToHistory(entry.label, entry.lat, entry.lng);

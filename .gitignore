@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 .venv/
 tests/data/
+tests/parity_matrikel.py
