@@ -702,6 +702,9 @@ function renderSidebar() {
       // an adgangsadresse, which tinglysning.dk's address-only API can't
       // look up but DAWA still knows about.
       if (entry.lookupMode === 'matrikel') {
+        const oisLink = entry.bfenummer
+          ? `<br><br><a href="https://www.ois.dk/Search/Property/Bfe/${encodeURIComponent(entry.bfenummer)}" target="_blank" rel="noopener noreferrer">Slå op på OIS via BFE-nummeret &rarr;</a>`
+          : '';
         section.appendChild(html(`
           <div class="card card-intro-paraply">
             <div class="card-title">Matrikel uden tingbog</div>
@@ -712,6 +715,7 @@ function renderSidebar() {
               ${entry.bfenummer ? `BFE-nummer: <strong>${esc(String(entry.bfenummer))}</strong>.` : ''}
               <br><br>
               ${esc(entry.error)}
+              ${oisLink}
             </div>
           </div>
         `));
