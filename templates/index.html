@@ -351,14 +351,20 @@ map.on('click', async e => {
   // lookup off that matrikel. Avoids the 500 m haversine guess that could
   // otherwise resolve a click on parcel A to an address on neighbouring
   // parcel B.
+  console.log('[click] map click', { lat, lng });
   let res;
   try {
     res = await fetch(`/api/click?lat=${lat}&lng=${lng}`);
-  } catch {
+  } catch (err) {
+    console.warn('[click] /api/click network error', err);
     return;
   }
-  if (!res.ok) return;
+  if (!res.ok) {
+    console.warn('[click] /api/click HTTP', res.status);
+    return;
+  }
   const hit = await res.json();
+  console.log('[click] /api/click hit', hit.matrikelnr, hit.ejerlavkode, 'has_geometry=', !!hit.geometry);
   input.value = '';
   addMatrikel(hit);
 });
@@ -487,17 +493,24 @@ async function addMatrikel(hit) {
   const matrikelnr = (hit.matrikelnr || '').trim();
   const ejerlavkode = String(hit.ejerlavkode || '').trim();
   const ejerlavsnavn = (hit.ejerlavsnavn || '').trim();
-  if (!matrikelnr || !ejerlavkode) return;
+  console.log('[addMatrikel] start', { matrikelnr, ejerlavkode, entriesLen: entries.length });
+  if (!matrikelnr || !ejerlavkode) {
+    console.warn('[addMatrikel] rejected: missing matrikelnr or ejerlavkode', hit);
+    return;
+  }
 
   const provisionalLabel = ejerlavsnavn
     ? `Matrikel ${matrikelnr}, ${ejerlavsnavn}`
     : `Matrikel ${matrikelnr}`;
   // Reject duplicates by matrikel identity rather than label, because the
   // label is rewritten to the parent address once the tingbog comes back.
-  if (entries.some(e => e.lookupMode === 'matrikel'
+  const dupIdx = entries.findIndex(e => e.lookupMode === 'matrikel'
         && e.matrikelnr === matrikelnr
-        && e.ejerlavkode === ejerlavkode)) {
+        && e.ejerlavkode === ejerlavkode);
+  if (dupIdx !== -1) {
+    console.log('[addMatrikel] dedup hit at idx', dupIdx, '— scrolling to existing entry');
     openSidebarMobile();
+    scrollToEntry(dupIdx);
     return;
   }
   openSidebarMobile();
@@ -518,6 +531,7 @@ async function addMatrikel(hit) {
     clickGeometry: hit.geometry || null,
   };
   entries.push(entry);
+  console.log('[addMatrikel] entry pushed, idx=', idx, 'entries=', entries.length);
   renderSidebar();
   scrollToEntry(idx);
   // Draw the clicked parcel immediately so the user sees something while the
@@ -526,6 +540,7 @@ async function addMatrikel(hit) {
   syncMatrikelOverlay();
 
   await loadEntry(entry);
+  console.log('[addMatrikel] loadEntry done, status=', entry.status, 'uuid=', entry.data?.uuid);
   scrollToEntry(entries.indexOf(entry));
 }
 
