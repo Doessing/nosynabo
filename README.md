@@ -75,7 +75,7 @@ Caddy listens on port **18000** and proxies to the app. Set `DUCKDNS_DOMAIN` to 
 Open `http://localhost:8000` in a browser.
 
 - **Search** by typing an address in the sidebar — autocomplete is powered by [DAWA](https://dawadocs.dataforsyningen.dk).
-- **Click the map** to look up the property at that location (reverse geocoding via [Dataforsyningen](https://dataforsyningen.dk)).
+- **Click the map** to look up the property at that location. Clicks are resolved by the **matrikel under the cursor** (cadastral parcel) rather than the nearest street address — so a click on parcel A always returns parcel A's tingbog, even if a neighbouring address happens to be physically closer to the click point.
 - Up to **10 addresses** can be pinned simultaneously. Each gets a numbered marker; click a marker to scroll to its details in the sidebar.
 - Remove any address with the **×** button in its header.
 
@@ -86,8 +86,11 @@ Open `http://localhost:8000` in a browser.
 | Endpoint | Parameters | Description |
 |---|---|---|
 | `GET /api/autocomplete` | `q` | DAWA address autocomplete |
-| `GET /api/reverse` | `lat`, `lng` | Reverse geocode a map click to an address |
 | `GET /api/lookup` | `q` | Full property lookup by freeform address |
+| `GET /api/click` | `lat`, `lng` | Resolve a map click to its matrikel via DAWA `jordstykker/reverse` |
+| `GET /api/lookup-matrikel` | `matrikelnr`, `ejerlavskode`, `lat?`, `lng?` | Tingbog lookup driven by matrikel identity. Optional `lat`/`lng` enable andelsbolig enrichment for the dwelling closest to the click. |
+| `GET /api/sales-history` | `q` | Boligsiden sale history + active-listing status |
+| `GET /api/reverse` | `lat`, `lng` | Legacy reverse geocoder (kept for backwards compatibility; UI no longer calls it) |
 
 ### Example
 
@@ -154,6 +157,13 @@ ALTCHA is a CAPTCHA-style proof-of-work: the server hands out a challenge, the c
 
 ## Lookup flow
 
+There are two distinct flows depending on how the user identifies the property:
+
+- **Address flow** (`/api/lookup`) — typed address from the search box, resolved via DAWA, then tinglysning by `(postnr, vejnavn, husnr)`.
+- **Map-click flow** (`/api/click` → `/api/lookup-matrikel`) — pixel-precise click on the map, resolved by the matrikel under the cursor. Avoids the misalignment risk of the older haversine-based reverse geocoder, which could resolve a click on parcel A to an address on neighbouring parcel B.
+
+### Address flow
+
 A single call to `GET /api/lookup?q=…` kicks off this decision tree. The ejendomsoeg and andelsoeg paths can both succeed for the same address — the cooperative association's main address appears in both registers independently (see [Cooperative housing data model](#cooperative-housing-data-model)).
 
 ```mermaid
@@ -187,6 +197,46 @@ flowchart TD
 ```
 
 The matrikel fallback (the `F -> G -> G1` branch) handles umbrella properties — hospitals, large farms, cooperative associations — where the user's exact address is just a sub-entry on a parent matrikel owned under a different address. DAWA knows every address tied to a given (ejerlav, matrikelnr) pair, so we iterate those addresses and try each as a tinglysning search target until one resolves.
+
+### Map-click flow
+
+```mermaid
+flowchart TD
+    A["Map click (lat, lng)"]
+    A --> B["DAWA jordstykker/reverse<br/>&rarr; matrikelnr, ejerlavskode,<br/>bfenummer, geometry"]
+    B --> C["UI draws dashed parcel polygon<br/>immediately"]
+    B --> D["/api/lookup-matrikel<br/>matrikelnr, ejerlavskode, lat, lng"]
+
+    D --> E["DAWA adgangsadresser<br/>by (ejerlav, matrikelnr)"]
+    E --> F{any candidates?}
+    F -- yes --> G["For each candidate:<br/>ejendomsoeg/soeg + hentejendomsbog"]
+    G --> H{tingbog matrikler<br/>contains our parcel?}
+    H -- yes --> I["Pick this tingbog"]
+    H -- no --> G
+    F -- no --> S["SFE fallback:<br/>jordstykker?sfeejendomsnr=...<br/>iterate sibling parcels"]
+    S --> G
+
+    I --> J{ejernavn matches<br/>andel-keyword?}
+    J -- yes --> K["Reverse-geocode click<br/>to nearest adgangsadresse<br/>on matriklen"]
+    K --> L["andelsoeg/soeg + hentandelsboligbog<br/>for that specific dwelling"]
+    L --> M["Attach as andelsbolig<br/>on response"]
+    J -- no --> N["No andelsbolig enrichment"]
+
+    M --> O["Final response"]
+    N --> O
+
+    O --> P["Boligsiden sale history<br/>by parent_adresse"]
+
+    F -- "all candidates<br/>failed upstream" --> Q["Raise ConnectionError<br/>&rarr; 502 (not 404)"]
+    Q --> R["Frontend auto-retry<br/>then 'Prøv igen' button"]
+```
+
+Key properties:
+
+- **Matrikel-first**, not address-first. The click identifies a parcel; the address is just the lookup vehicle.
+- **SFE fallback** handles parcels without their own adgangsadresse (typical for fields, woodland, common lots) by walking sibling parcels sharing the same `sfeejendomsnr`.
+- **Andelsbolig enrichment** uses the click coordinates to pick the dwelling closest to the click — so clicking near apartment 13 in a cooperative resolves to apartment 13's individual share record, not the foundation entry.
+- **Transient failures** in tinglysning.dk surface as 502/504 with a "Prøv igen" button, not a misleading "matrikel uden tingbog" card. The latter is reserved for parcels that are genuinely unreachable through the public REST surface (fx. BFE-isolerede skov-/markarealer uden adresse), which then offer an OIS deeplink as a last resort.
 
 ---
 
