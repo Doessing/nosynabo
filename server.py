@@ -358,7 +358,10 @@ def lookup_matrikel(
         )
     except requests.RequestException as e:
         log.warning("lookup-matrikel upstream error: %s", e)
-        raise HTTPException(status_code=502, detail="Tinglysning.dk unreachable")
+        raise HTTPException(
+            status_code=502,
+            detail="Tinglysning.dk er ikke til at få fat i lige nu — prøv igen om lidt.",
+        )
 
     if fallback is None:
         raise HTTPException(

@@ -395,7 +395,13 @@ class TinglysningClient:
             try:
                 resp = self.session.get(url, params=params, timeout=self._TIMEOUT)
             except requests.exceptions.ConnectionError:
-                # Stale keep-alive connection — retry will open a fresh one
+                # Connection reset / stale keep-alive. The server may also
+                # have invalidated our ALTCHA session along with the socket,
+                # so drop the cached token before retrying — otherwise the
+                # second attempt reuses a dead token and we end up raising
+                # to the caller, which previously surfaced as a flaky 502
+                # on the first click that disappeared on a fresh session.
+                self._token = None
                 if attempt == 1:
                     raise
                 continue
@@ -732,21 +738,34 @@ class TinglysningClient:
         )
         r.raise_for_status()
         candidates = r.json() or []
+        upstream_errors = 0
+        candidates_tried = 0
         for c in candidates:
             postnr = c.get("postnr")
             vejnavn = c.get("vejnavn")
             husnr = c.get("husnr")
             if not (postnr and vejnavn and husnr):
                 continue
+            candidates_tried += 1
             try:
                 items = self.search_property(postnr, vejnavn, husnr)
-            except RuntimeError:
+            except (RuntimeError, requests.exceptions.RequestException):
+                # Treat upstream flakiness (connection reset, timeout, 5xx)
+                # the same as a "no result" miss — try the next candidate
+                # rather than aborting the whole matrikel resolution. The
+                # original code only caught RuntimeError, which meant a
+                # single ConnectionResetError on the first candidate killed
+                # the entire lookup and surfaced as a spurious 404 to the
+                # user (observed on 21a Gauerslund — second click 6 min
+                # later returned 200 OK with the same matrikel).
+                upstream_errors += 1
                 continue
             if not items:
                 continue
             try:
                 tingbog = self.get_tingbog(items[0]["uuid"])
-            except RuntimeError:
+            except (RuntimeError, requests.exceptions.RequestException):
+                upstream_errors += 1
                 continue
             for mat in tingbog.get("matrikler") or []:
                 if (mat.get("matrikelnummer") == matrikelnr
@@ -755,6 +774,17 @@ class TinglysningClient:
                         tingbog, candidates, click_lat, click_lng,
                     )
                     return tingbog, c.get("betegnelse", "")
+
+        # If every candidate we tried errored out upstream, this is a
+        # transient network/tinglysning failure — not a "matrikel has no
+        # tingbog" situation. Surface it as an exception so server.py
+        # returns 502/504 instead of a misleading 404 that suggests the
+        # parcel is genuinely unregistered.
+        if candidates_tried > 0 and upstream_errors == candidates_tried:
+            raise requests.exceptions.ConnectionError(
+                f"All {candidates_tried} address candidates for matrikel "
+                f"{matrikelnr}/{ejerlavskode} failed upstream"
+            )
 
         # SFE fallback: a matrikel without its own adgangsadresse (typical
         # for marker/enge/skove that share a samlet fast ejendom with a
@@ -820,13 +850,13 @@ class TinglysningClient:
                     continue
                 try:
                     items = self.search_property(postnr, vejnavn, husnr)
-                except RuntimeError:
+                except (RuntimeError, requests.exceptions.RequestException):
                     continue
                 if not items:
                     continue
                 try:
                     tingbog = self.get_tingbog(items[0]["uuid"])
-                except RuntimeError:
+                except (RuntimeError, requests.exceptions.RequestException):
                     continue
                 for mat in tingbog.get("matrikler") or []:
                     if (mat.get("matrikelnummer") == matrikelnr
