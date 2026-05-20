@@ -28,6 +28,35 @@ Notes:
 - Treated as a separate feature from F1.
 - Prefer stable/official data interfaces over fragile HTML scraping.
 
+## F1.6 - Matrikel-first map clicks (MERGED #15)
+
+Short name: `matrikel-click`
+
+Scope:
+- Map clicks resolve via the matrikel under the cursor (`/api/click` -> DAWA
+  `jordstykker/reverse`) instead of the legacy 500m haversine reverse-geocoder.
+  Eliminates the case where a click on parcel A returned an address on
+  neighbouring parcel B.
+- New `/api/lookup-matrikel` drives tingbog lookup directly from
+  `(matrikelnr, ejerlavskode)`, with two fallbacks:
+  - SFE fallback: walk sibling parcels sharing `sfeejendomsnr` when the
+    clicked parcel has no own adgangsadresse (mark/skov/faelleslod).
+  - OIS deeplink card for genuine BFE-isolerede matrikler (fx 37b Magleby,
+    3v Skovbølling) where tinglysningens offentlige REST is structurally
+    unreachable.
+- Andelsbolig enrichment on click: when a forening-tingbog comes back, the
+  click coordinates are reverse-geocoded to the nearest adgangsadresse on
+  the parcel and andelsoeg is queried for that specific dwelling. Restores
+  per-flat lookup parity with the address flow.
+- Boligsiden sales-history is fetched on click as well, mirroring the
+  address flow.
+- Robusthed: transient tinglysning-fejl (connection reset / 5xx) overflades
+  som 502/504 saa frontend's eksisterende auto-retry + "Proev igen"-knap
+  aktiveres - tidligere blev de fejltolket som "matrikel uden tingbog".
+  `_get_json` nulstiller cached ALTCHA-token paa ConnectionError foer retry.
+
+Address flow (typed search) is unchanged.
+
 ## F2 - Historiske ejere (auth bridge)
 
 Short name: `owner-history`
