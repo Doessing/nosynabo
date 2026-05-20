@@ -395,7 +395,13 @@ class TinglysningClient:
             try:
                 resp = self.session.get(url, params=params, timeout=self._TIMEOUT)
             except requests.exceptions.ConnectionError:
-                # Stale keep-alive connection — retry will open a fresh one
+                # Connection reset / stale keep-alive. The server may also
+                # have invalidated our ALTCHA session along with the socket,
+                # so drop the cached token before retrying — otherwise the
+                # second attempt reuses a dead token and we end up raising
+                # to the caller, which previously surfaced as a flaky 502
+                # on the first click that disappeared on a fresh session.
+                self._token = None
                 if attempt == 1:
                     raise
                 continue
@@ -629,10 +635,81 @@ class TinglysningClient:
         except (RuntimeError, requests.exceptions.RequestException):
             return None
 
+    def _enrich_with_click_andelsbolig(
+        self,
+        tingbog: dict,
+        candidates: list[dict],
+        click_lat: float | None,
+        click_lng: float | None,
+    ) -> None:
+        """Mutate `tingbog` to add `andelsbolig` for the clicked dwelling.
+
+        Only fires when:
+          1. Click coordinates were provided (matrikel-click flow, not the
+             address-flow internal fallback).
+          2. The tingbog's owner name matches an andel-keyword — i.e. this
+             matrikel is a cooperative-housing umbrella, so the per-flat
+             andelsboligbog is worth checking.
+          3. We can pick a nearest adgangsadresse on the matrikel from the
+             click point.
+
+        Picks the closest adgangsadresse to the click via simple planar
+        distance on lat/lng (good enough at city scale where matrikler
+        rarely span more than a few hundred metres) and calls
+        `_try_lookup_andelsbolig` on it. The result is attached to the
+        tingbog as `andelsbolig` so the existing UI card renders it.
+
+        If anything fails (no coords, no matching owner, no candidates,
+        andelsoeg miss), `andelsbolig` stays absent — caller decides the
+        default. Never raises.
+        """
+        if tingbog.get("andelsbolig"):
+            return  # already populated by some other path
+        if click_lat is None or click_lng is None:
+            return
+        if not candidates:
+            return
+
+        ejernavn = ""
+        ejere = tingbog.get("ejere") or []
+        if ejere:
+            ejernavn = (ejere[0].get("navn") or "").lower()
+        # Reuse the address-flow heuristic. ejd_hits=[tingbog] models the
+        # single-property umbrella case (ejd=1), which is exactly what a
+        # matrikel-click resolves to.
+        if not self._skal_spørge_andel([tingbog], ejernavn):
+            return
+
+        # Pick nearest candidate by squared planar distance (no sqrt needed
+        # for argmin). Skip candidates missing coords.
+        def dist2(c: dict) -> float:
+            try:
+                return (
+                    (float(c["x"]) - click_lng) ** 2
+                    + (float(c["y"]) - click_lat) ** 2
+                )
+            except (KeyError, TypeError, ValueError):
+                return float("inf")
+
+        nearest = min(candidates, key=dist2)
+        if dist2(nearest) == float("inf"):
+            return
+        postnr = nearest.get("postnr")
+        vejnavn = nearest.get("vejnavn")
+        husnr = nearest.get("husnr")
+        if not (postnr and vejnavn and husnr):
+            return
+
+        andelsbolig = self._try_lookup_andelsbolig(postnr, vejnavn, husnr)
+        if andelsbolig is not None:
+            tingbog["andelsbolig"] = andelsbolig
+
     def _find_tingbog_by_matrikel(
         self,
         matrikelnr: str,
         ejerlavskode: str,
+        click_lat: float | None = None,
+        click_lng: float | None = None,
     ) -> tuple[dict, str] | None:
         """Find the tingbog for a matrikel by asking DAWA for its addresses.
 
@@ -640,6 +717,13 @@ class TinglysningClient:
         pair. We iterate those addresses, ask tinglysning.dk for each, and
         return the first hit whose tingbog actually covers our matrikel.
         Far more targeted than scanning every tingbog on the street.
+
+        When called with click coordinates and the resolved tingbog looks
+        like a cooperative-housing umbrella (single hit with owner matching
+        an andel keyword), additionally reverse-geocode the click point to
+        the nearest adgangsadresse on the matrikel and probe andelsoeg for
+        the specific dwelling. This restores the per-flat lookup behaviour
+        the old address-flow had for andelsbolig clicks.
 
         Returns (tingbog_data, parent_address_label) or None.
         """
@@ -654,26 +738,136 @@ class TinglysningClient:
         )
         r.raise_for_status()
         candidates = r.json() or []
+        upstream_errors = 0
+        candidates_tried = 0
         for c in candidates:
             postnr = c.get("postnr")
             vejnavn = c.get("vejnavn")
             husnr = c.get("husnr")
             if not (postnr and vejnavn and husnr):
                 continue
+            candidates_tried += 1
             try:
                 items = self.search_property(postnr, vejnavn, husnr)
-            except RuntimeError:
+            except (RuntimeError, requests.exceptions.RequestException):
+                # Treat upstream flakiness (connection reset, timeout, 5xx)
+                # the same as a "no result" miss — try the next candidate
+                # rather than aborting the whole matrikel resolution. The
+                # original code only caught RuntimeError, which meant a
+                # single ConnectionResetError on the first candidate killed
+                # the entire lookup and surfaced as a spurious 404 to the
+                # user (observed on 21a Gauerslund — second click 6 min
+                # later returned 200 OK with the same matrikel).
+                upstream_errors += 1
                 continue
             if not items:
                 continue
             try:
                 tingbog = self.get_tingbog(items[0]["uuid"])
-            except RuntimeError:
+            except (RuntimeError, requests.exceptions.RequestException):
+                upstream_errors += 1
                 continue
             for mat in tingbog.get("matrikler") or []:
                 if (mat.get("matrikelnummer") == matrikelnr
                         and str(mat.get("landsejerlavkode")) == ejerlavskode):
+                    self._enrich_with_click_andelsbolig(
+                        tingbog, candidates, click_lat, click_lng,
+                    )
                     return tingbog, c.get("betegnelse", "")
+
+        # If every candidate we tried errored out upstream, this is a
+        # transient network/tinglysning failure — not a "matrikel has no
+        # tingbog" situation. Surface it as an exception so server.py
+        # returns 502/504 instead of a misleading 404 that suggests the
+        # parcel is genuinely unregistered.
+        if candidates_tried > 0 and upstream_errors == candidates_tried:
+            raise requests.exceptions.ConnectionError(
+                f"All {candidates_tried} address candidates for matrikel "
+                f"{matrikelnr}/{ejerlavskode} failed upstream"
+            )
+
+        # SFE fallback: a matrikel without its own adgangsadresse (typical
+        # for marker/enge/skove that share a samlet fast ejendom with a
+        # bebygget naboparcel) cannot be resolved by the loop above. Ask
+        # DAWA's jordstykker endpoint for the matrikel's SFE-nummer, then
+        # iterate adgangsadresser on every sibling matrikel sharing that
+        # SFE. Example: 4e Lintrup By (mark, 0 adresser) shares SFE 5035243
+        # with 9u Klelund By (Grindstedvej 21) — same tingbog, BFE 5035243.
+        try:
+            jr = requests.get(
+                "https://api.dataforsyningen.dk/jordstykker",
+                params={
+                    "ejerlavkode": ejerlavskode,
+                    "matrikelnr": matrikelnr,
+                    "struktur": "flad",
+                },
+                timeout=10,
+            )
+            jr.raise_for_status()
+            js = jr.json() or []
+            sfe = js[0].get("sfeejendomsnr") if js else None
+        except (requests.RequestException, ValueError, IndexError, KeyError):
+            sfe = None
+
+        if not sfe:
+            return None
+
+        try:
+            sr = requests.get(
+                "https://api.dataforsyningen.dk/jordstykker",
+                params={"sfeejendomsnr": sfe, "struktur": "flad"},
+                timeout=10,
+            )
+            sr.raise_for_status()
+            siblings = sr.json() or []
+        except (requests.RequestException, ValueError):
+            return None
+
+        for sib in siblings:
+            sib_mat = sib.get("matrikelnr")
+            sib_ejer = str(sib.get("ejerlavkode") or "")
+            if sib_mat == matrikelnr and sib_ejer == ejerlavskode:
+                continue  # already tried above
+            try:
+                ar = requests.get(
+                    "https://api.dataforsyningen.dk/adgangsadresser",
+                    params={
+                        "ejerlavkode": sib_ejer,
+                        "matrikelnr": sib_mat,
+                        "struktur": "mini",
+                    },
+                    timeout=10,
+                )
+                ar.raise_for_status()
+                sib_addrs = ar.json() or []
+            except requests.RequestException:
+                continue
+            for c in sib_addrs:
+                postnr = c.get("postnr")
+                vejnavn = c.get("vejnavn")
+                husnr = c.get("husnr")
+                if not (postnr and vejnavn and husnr):
+                    continue
+                try:
+                    items = self.search_property(postnr, vejnavn, husnr)
+                except (RuntimeError, requests.exceptions.RequestException):
+                    continue
+                if not items:
+                    continue
+                try:
+                    tingbog = self.get_tingbog(items[0]["uuid"])
+                except (RuntimeError, requests.exceptions.RequestException):
+                    continue
+                for mat in tingbog.get("matrikler") or []:
+                    if (mat.get("matrikelnummer") == matrikelnr
+                            and str(mat.get("landsejerlavkode")) == ejerlavskode):
+                        # Use the *clicked* matrikel's own adresser (not the
+                        # sibling's) for andelsbolig reverse-geocoding — the
+                        # user clicked on our parcel, not the sibling's.
+                        self._enrich_with_click_andelsbolig(
+                            tingbog, candidates, click_lat, click_lng,
+                        )
+                        return tingbog, c.get("betegnelse", "")
         return None
 
     def lookup(self, query: str) -> dict:
