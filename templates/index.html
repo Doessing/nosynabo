@@ -535,6 +535,27 @@ async function addMatrikel(hit) {
 
   await loadEntry(entry);
   scrollToEntry(entries.indexOf(entry));
+
+  // Boligsiden sales history once the matrikel-flow resolved a concrete
+  // address. The address-flow does this inline in addAddress(); we mirror
+  // it here so map-clicks also get "Til salg" badges and the registreringer
+  // table. Skipped if the lookup failed or no address came back (typical
+  // for unbuilt parcels). Same fire-and-forget pattern as addAddress.
+  const resolvedAddr = entry.data?._matrikel_fallback?.parent_adresse
+    || entry.data?.adresse;
+  if (entry.status === 'ok' && resolvedAddr) {
+    entry.salesLoading = true;
+    renderSidebar();
+    fetch(`/api/sales-history?q=${encodeURIComponent(resolvedAddr)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(sh => { entry.salesHistory = sh; })
+      .catch(() => { /* ignore — optional enrichment */ })
+      .finally(() => {
+        if (!entries.includes(entry)) return;
+        entry.salesLoading = false;
+        renderSidebar();
+      });
+  }
 }
 
 // Fetch /api/lookup for an entry, with one automatic retry on 5xx/network
@@ -558,7 +579,7 @@ async function loadEntry(entry) {
     let res = null, err = null, body = null;
     try {
       const url = entry.lookupMode === 'matrikel'
-        ? `/api/lookup-matrikel?matrikelnr=${encodeURIComponent(entry.matrikelnr)}&ejerlavskode=${encodeURIComponent(entry.ejerlavkode)}`
+        ? `/api/lookup-matrikel?matrikelnr=${encodeURIComponent(entry.matrikelnr)}&ejerlavskode=${encodeURIComponent(entry.ejerlavkode)}&lat=${encodeURIComponent(entry.lat)}&lng=${encodeURIComponent(entry.lng)}`
         : `/api/lookup?q=${encodeURIComponent(entry.label)}`;
       res = await fetch(url);
     } catch (e) {

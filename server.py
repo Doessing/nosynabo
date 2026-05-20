@@ -323,6 +323,8 @@ def click(lat: float = Query(...), lng: float = Query(...), response: Response =
 def lookup_matrikel(
     matrikelnr: str = Query(..., min_length=1),
     ejerlavskode: str = Query(..., min_length=1),
+    lat: float | None = Query(None),
+    lng: float | None = Query(None),
 ):
     """Tingbog lookup driven by (matrikelnr, ejerlavskode) — the click path.
 
@@ -331,6 +333,12 @@ def lookup_matrikel(
     whose `matrikler` actually contains our parcel. Far more reliable than
     guessing an address from the click coordinates.
 
+    When the optional `lat`/`lng` query params are supplied (the map-click
+    flow always sends them), the matrikel resolver additionally probes
+    andelsoeg for the adgangsadresse closest to the click point. That keeps
+    the per-flat andelsbolig card alive for clicks on cooperative-housing
+    umbrellas, which would otherwise only return the foreningens tingbog.
+
     Returns the same shape as /api/lookup so the existing frontend cards
     work unchanged. `_matrikel_fallback` is always set (this code path is
     by definition a matrikel-first lookup).
@@ -338,7 +346,10 @@ def lookup_matrikel(
     matrikelnr = matrikelnr.strip()
     ejerlavskode = ejerlavskode.strip()
     try:
-        fallback = _client._find_tingbog_by_matrikel(matrikelnr, ejerlavskode)
+        fallback = _client._find_tingbog_by_matrikel(
+            matrikelnr, ejerlavskode,
+            click_lat=lat, click_lng=lng,
+        )
     except requests.Timeout:
         log.warning("lookup-matrikel timeout for %s / %s", matrikelnr, ejerlavskode)
         raise HTTPException(
