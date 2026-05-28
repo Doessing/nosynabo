@@ -11,6 +11,7 @@ import subprocess
 from contextlib import asynccontextmanager
 
 import requests
+from cachetools import TTLCache
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -28,6 +29,7 @@ DAWA_JORDSTYKKER_REVERSE_URL = "https://api.dataforsyningen.dk/jordstykker/rever
 log = logging.getLogger(__name__)
 
 _client = TinglysningClient()
+_matrikel_area_cache: TTLCache = TTLCache(maxsize=4096, ttl=86400)
 
 
 def _git_version() -> str:
@@ -76,6 +78,79 @@ def _annotate_loan_types(tingbog: dict) -> dict:
     # avoid polluting the cached object with annotations whose format may
     # change across releases.
     tingbog = copy.deepcopy(tingbog)
+
+    def _lookup_matrikel_area_m2(matrikelnr: str, ejerlavskode: str | None, ejerlavsnavn: str | None) -> int | None:
+        key = (matrikelnr.strip(), (ejerlavskode or "").strip(), (ejerlavsnavn or "").strip())
+        if key in _matrikel_area_cache:
+            return _matrikel_area_cache[key]
+
+        params = {
+            "matrikelnr": matrikelnr,
+            "struktur": "flad",
+            "per_side": 1,
+        }
+        if ejerlavskode:
+            params["ejerlavkode"] = ejerlavskode
+        elif ejerlavsnavn:
+            params["ejerlavsnavn"] = ejerlavsnavn
+        else:
+            _matrikel_area_cache[key] = None
+            return None
+
+        try:
+            resp = requests.get(DAWA_JORDSTYKKER_URL, params=params, timeout=(3, 8))
+            resp.raise_for_status()
+            arr = resp.json() or []
+        except (requests.RequestException, ValueError):
+            return None
+
+        if not arr:
+            _matrikel_area_cache[key] = None
+            return None
+
+        row = arr[0]
+        raw_area = row.get("registreretareal")
+        if raw_area is None:
+            raw_area = row.get("arealberegnet")
+        if raw_area is None:
+            _matrikel_area_cache[key] = None
+            return None
+
+        try:
+            area_m2 = int(round(float(raw_area)))
+        except (TypeError, ValueError):
+            _matrikel_area_cache[key] = None
+            return None
+
+        if area_m2 <= 0:
+            _matrikel_area_cache[key] = None
+            return None
+
+        _matrikel_area_cache[key] = area_m2
+        return area_m2
+
+    total_area = 0
+    has_area = False
+    has_missing_area = False
+    for m in tingbog.get("matrikler") or []:
+        matrikelnr = (m.get("matrikelnummer") or "").strip()
+        if not matrikelnr:
+            continue
+        ejerlavskode = str(m.get("landsejerlavkode") or "").strip() or None
+        ejerlavsnavn = (m.get("landsejerlavnavn") or "").strip() or None
+        area_m2 = _lookup_matrikel_area_m2(matrikelnr, ejerlavskode, ejerlavsnavn)
+        if area_m2 is None:
+            has_missing_area = True
+            continue
+        m["areal_m2"] = area_m2
+        total_area += area_m2
+        has_area = True
+
+    # Only expose an aggregate parcel area when every matrikel on the
+    # property has an area. Otherwise the number would look exact while being
+    # partial.
+    tingbog["grundareal_m2"] = total_area if has_area and not has_missing_area else None
+
     for h in tingbog.get("haeftelser") or []:
         rente = float(h.get("rente") or 0)
         if (h.get("fastvariabel") == "variabel"
