@@ -103,6 +103,7 @@ curl "http://localhost:8000/api/lookup?q=Eksempelvej+1+Byby"
   "adresse": "Eksempelvej 1, 1234 Byby",
   "ejendomstype": "Ejerlejlighed",
   "matrikler": [{ "matrikelnummer": "...", "landsejerlavnavn": "..." }],
+  "grundareal_m2": 742,
   "vurdering": {
     "vurderingsdato": "2022-01-01",
     "ejendomsvaerdi": 2650000,
@@ -235,7 +236,8 @@ Key properties:
 
 - **Matrikel-first**, not address-first. The click identifies a parcel; the address is just the lookup vehicle.
 - **SFE fallback** handles parcels without their own adgangsadresse (typical for fields, woodland, common lots) by walking sibling parcels sharing the same `sfeejendomsnr`.
-- **Andelsbolig enrichment** uses the click coordinates to pick the dwelling closest to the click — so clicking near apartment 13 in a cooperative resolves to apartment 13's individual share record, not the foundation entry.
+- **Andelsbolig enrichment** uses the click coordinates to pick the dwelling closest to the click - so clicking near apartment 13 in a cooperative resolves to apartment 13's individual share record, not the foundation entry.
+- **Ground area enrichment** augments each matrikel with `areal_m2` from DAWA `jordstykker` and exposes `grundareal_m2` when all matrikler on the property have known area.
 - **Transient failures** in tinglysning.dk surface as 502/504 with a "Prøv igen" button, not a misleading "matrikel uden tingbog" card. The latter is reserved for parcels that are genuinely unreachable through the public REST surface (fx. BFE-isolerede skov-/markarealer uden adresse), which then offer an OIS deeplink as a last resort.
 
 ---

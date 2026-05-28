@@ -57,6 +57,26 @@ Scope:
 
 Address flow (typed search) is unchanged.
 
+## F1.7 - GPS locate + grundareal + sales-table overflow
+
+Short name: `gps-grundareal`
+
+Scope:
+- Add a GPS locate button in the search row that resolves the user's current
+  position via `/api/reverse` and performs a normal address lookup.
+- Add inline user feedback for geolocation states (locating, permission
+  denied, timeout, no nearby address) and loading state on the GPS button.
+- Enrich tingbog responses with parcel area:
+  - `matrikler[].areal_m2` from DAWA `jordstykker`
+  - aggregate `grundareal_m2` only when all matrikler have known area (no
+    partial totals presented as exact).
+- UI rendering:
+  - show `Grundareal` in the valuation card when available
+  - show matrikel area in the matrikler table
+- Fix mobile horizontal overflow in sales-history tables for large
+  multi-million prices by moving currency unit to header and tightening
+  responsive table behavior.
+
 ## F2 - Historiske ejere (auth bridge)
 
 Short name: `owner-history`

@@ -220,15 +220,31 @@ table { width: 100%; border-collapse: collapse; }
 td { padding: 4px 0; vertical-align: top; }
 td:first-child { color: var(--text-muted); width: 130px; }
 td:last-child { font-weight: 500; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* ── Sales history table (4 columns, different layout than key/value) ── */
 .sales-history td,
 .sales-history th { padding: 4px 6px 4px 0; white-space: nowrap; }
-.sales-history td:first-child { color: var(--text-muted); width: auto; font-variant-numeric: tabular-nums; }
+.sales-history td { padding: 4px 6px 4px 0; }
+.sales-history td:first-child { color: var(--text-muted); width: auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .sales-history td:last-child { font-weight: 400; white-space: normal; }
 .sales-history th { text-align: left; font-size: 11px; color: var(--text-muted); font-weight: 500; border-bottom: 1px solid var(--border); }
 .sales-history td.num,
 .sales-history th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.sales-history td.num { white-space: nowrap; }
+
+@media (max-width: 520px) {
+  .sales-history th,
+  .sales-history td {
+    padding-right: 4px;
+    font-size: 11px;
+  }
+  .sales-history th:last-child,
+  .sales-history td:last-child {
+    max-width: 74px;
+    overflow-wrap: anywhere;
+  }
+}
 
 /* ── Mortgage items ── */
 .mortgage {
@@ -367,6 +383,50 @@ td:last-child { font-weight: 500; }
   font-size: 16px; color: var(--text-muted); transition: all .2s;
 }
 .history-btn:hover { background: var(--surface); color: var(--text-main); border-color: var(--border); }
+
+.gps-btn {
+  width: 44px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: var(--text-muted);
+  transition: all .2s;
+}
+
+.gps-btn:hover {
+  background: var(--surface);
+  color: var(--text-main);
+  border-color: var(--border);
+}
+
+.gps-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.gps-btn.is-loading svg {
+  animation: gps-spin 1s linear infinite;
+}
+
+@keyframes gps-spin {
+  to { transform: rotate(360deg); }
+}
+
+#search-feedback {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+#search-feedback.feedback-error {
+  color: var(--danger);
+}
 
 .nosy-map-control {
   background: var(--surface);
@@ -595,9 +655,11 @@ td:last-child { font-weight: 500; }
 [data-theme="dark"] #sidebar { box-shadow: 2px 0 8px rgba(0,0,0,.45); }
 [data-theme="dark"] #search-input::placeholder { color: #9baaca; }
 [data-theme="dark"] .history-btn,
-[data-theme="dark"] .darkmode-btn { background: var(--surface-soft); border-color: var(--border); color: var(--text-muted); }
+[data-theme="dark"] .darkmode-btn,
+[data-theme="dark"] .gps-btn { background: var(--surface-soft); border-color: var(--border); color: var(--text-muted); }
 [data-theme="dark"] .history-btn:hover,
-[data-theme="dark"] .darkmode-btn:hover { background: var(--surface); color: var(--text-main); border-color: #4b5563; }
+[data-theme="dark"] .darkmode-btn:hover,
+[data-theme="dark"] .gps-btn:hover { background: var(--surface); color: var(--text-main); border-color: #4b5563; }
 [data-theme="dark"] .map-control-item { color: var(--text-muted); }
 [data-theme="dark"] .nosy-map-control { background: var(--surface); border-color: var(--border); box-shadow: 0 2px 8px rgba(0,0,0,.45); }
 [data-theme="dark"] #basemap-select { background: var(--surface-soft); border-color: var(--border); color: var(--text-main); }
