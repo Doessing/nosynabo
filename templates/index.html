@@ -45,9 +45,13 @@
   <div id="search-box">
     <div id="search-row">
       <input id="search-input" type="text" placeholder="Søg adresse… (fx Stålhøjen 24 Risskov)" autocomplete="off"/>
+      <button class="gps-btn" id="gps-btn" onclick="locateMe()" title="Find min adresse" aria-label="Find min adresse">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><line x1="12" y1="2" x2="12" y2="5"></line><line x1="12" y1="19" x2="12" y2="22"></line><line x1="2" y1="12" x2="5" y2="12"></line><line x1="19" y1="12" x2="22" y2="12"></line></svg>
+      </button>
       <button class="history-btn" onclick="toggleHistory()" title="Søgehistorik" aria-label="Søgehistorik"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></button>
       <button class="darkmode-btn" id="darkmode-btn" onclick="toggleTheme()" title="Skift tema" aria-label="Skift tema"></button>
     </div>
+    <div id="search-feedback" aria-live="polite" hidden></div>
     <div id="suggestions" hidden></div>
     <div id="history-dropdown"></div>
   </div>
@@ -365,14 +369,97 @@ map.on('click', async e => {
 
 // ── Autocomplete ───────────────────────────────────────────────────────────
 const input = document.getElementById('search-input');
+const gpsBtn = document.getElementById('gps-btn');
+const searchFeedback = document.getElementById('search-feedback');
 const suggestionsEl = document.getElementById('suggestions');
 let debounceTimer;
 let currentSuggestions = [];
 let suggestController = null;
 let suggestSeq = 0;
+let gpsBusy = false;
+
+function setSearchFeedback(message, type = 'info') {
+  if (!searchFeedback) return;
+  if (!message) {
+    searchFeedback.hidden = true;
+    searchFeedback.textContent = '';
+    searchFeedback.className = '';
+    return;
+  }
+  searchFeedback.hidden = false;
+  searchFeedback.textContent = message;
+  searchFeedback.className = `feedback-${type}`;
+}
+
+function setGpsBusy(isBusy) {
+  gpsBusy = isBusy;
+  if (!gpsBtn) return;
+  gpsBtn.disabled = isBusy;
+  gpsBtn.classList.toggle('is-loading', isBusy);
+}
+
+async function locateMe() {
+  if (gpsBusy) return;
+  if (entries.length >= 10) {
+    setSearchFeedback('Maks. 10 adresser nået - fjern en for at tilføje nye.', 'error');
+    return;
+  }
+  if (!navigator.geolocation) {
+    setSearchFeedback('Din browser understøtter ikke GPS-geolokation.', 'error');
+    return;
+  }
+
+  setSearchFeedback('Finder din position…');
+  setGpsBusy(true);
+
+  navigator.geolocation.getCurrentPosition(async pos => {
+    try {
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      const res = await fetch(`/api/reverse?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`);
+      if (!res.ok) {
+        let detail = null;
+        try {
+          const body = await res.json();
+          detail = body && body.detail;
+        } catch {
+          detail = null;
+        }
+        setSearchFeedback(detail || 'Kunne ikke finde en adresse ved din position.', 'error');
+        return;
+      }
+
+      const resolved = await res.json();
+      hideSuggestions();
+      hideHistory();
+      input.value = '';
+      map.setView([resolved.lat, resolved.lng], 16);
+      setSearchFeedback('Adresse fundet via GPS.');
+      addAddress(resolved.label, resolved.lat, resolved.lng);
+    } catch {
+      setSearchFeedback('GPS-opslag fejlede. Prøv igen.', 'error');
+    } finally {
+      setGpsBusy(false);
+    }
+  }, err => {
+    const code = err && err.code;
+    const msg = code === 1
+      ? 'GPS-adgang blev afvist. Tillad lokation i browseren og prøv igen.'
+      : code === 2
+        ? 'Kunne ikke bestemme din position.'
+        : 'GPS-opslag timed out. Prøv igen.';
+    setSearchFeedback(msg, 'error');
+    setGpsBusy(false);
+  }, {
+    enableHighAccuracy: true,
+    timeout: 10000,
+    maximumAge: 60000,
+  });
+}
 
 input.addEventListener('input', () => {
   clearTimeout(debounceTimer);
+  setSearchFeedback('');
   const q = input.value.trim();
   if (q.length < 2) {
     if (suggestController) suggestController.abort();
@@ -813,11 +900,16 @@ function renderEntryCards(container, d, salesHistory) {
   }
 
   if (d.matrikler?.length) {
+    const hasMatrikelArea = d.matrikler.some(m => Number.isFinite(m.areal_m2));
     container.appendChild(html(`
       <div class="card">
         <div class="card-title">Matrikler</div>
         <table>${d.matrikler.map(m => `
-          <tr><td>${esc(m.matrikelnummer)}</td><td>${esc(m.landsejerlavnavn)}</td></tr>
+          <tr>
+            <td>${esc(m.matrikelnummer)}</td>
+            <td>${esc(m.landsejerlavnavn)}</td>
+            ${hasMatrikelArea ? `<td class="num">${Number.isFinite(m.areal_m2) ? `${fmt(Math.round(m.areal_m2))} m²` : '—'}</td>` : ''}
+          </tr>
         `).join('')}</table>
       </div>
     `));
@@ -825,6 +917,9 @@ function renderEntryCards(container, d, salesHistory) {
 
   if (d.vurdering) {
     const v = d.vurdering;
+    const grundArealRow = Number.isFinite(d.grundareal_m2)
+      ? `<tr><td>Grundareal</td><td>${fmt(Math.round(d.grundareal_m2))} m²</td></tr>`
+      : '';
     const totalDebt = (d.haeftelser || []).reduce((sum, h) => {
       const principal = parseKr(h.hovedstol);
       const rate = parseFloat(h.rente) || 0;
@@ -856,6 +951,7 @@ function renderEntryCards(container, d, salesHistory) {
         <table>
           <tr><td>Ejendomsværdi</td><td>${fmt(v.ejendomsvaerdi)} kr.</td></tr>
           <tr><td>Grundværdi</td><td>${fmt(v.grundvaerdi)} kr.</td></tr>
+          ${grundArealRow}
           <tr><td>Kommune</td><td>${esc(v.kommune)}</td></tr>
           ${debtRow}
         </table>
@@ -917,10 +1013,10 @@ function renderEntryCards(container, d, salesHistory) {
       return `${monthsDa[parseInt(m, 10) - 1] || m} ${y}`;
     };
     const rows = salesHistory.registrations.map(r => {
-      const pricePerM2 = r.perAreaPrice ? `${fmt(r.perAreaPrice)} kr/m²` : '—';
+      const pricePerM2 = r.perAreaPrice ? `${fmt(r.perAreaPrice)}` : '—';
       return `<tr>
         <td>${shortDate(r.date)}</td>
-        <td class="num">${fmt(r.amount)} kr.</td>
+        <td class="num">${fmt(r.amount)}</td>
         <td class="num">${pricePerM2}</td>
         <td>${esc(r.typeLabel || '')}</td>
       </tr>`;
@@ -929,7 +1025,7 @@ function renderEntryCards(container, d, salesHistory) {
       <div class="card">
         <div class="card-title">Salgshistorik <span class="card-note">(via Boligsiden)</span></div>
         <table class="sales-history">
-          <thead><tr><th>Dato</th><th class="num">Pris</th><th class="num">Pris/m²</th><th>Type</th></tr></thead>
+          <thead><tr><th>Dato</th><th class="num">Pris (kr.)</th><th class="num">Pris/m²</th><th>Type</th></tr></thead>
           ${rows}
         </table>
       </div>
