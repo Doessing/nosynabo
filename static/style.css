@@ -148,6 +148,19 @@ body {
   flex-shrink: 0;
 }
 .entry-label { flex: 1; font-weight: 600; font-size: 13px; color: var(--text-main); }
+.entry-aerial {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-soft);
+  white-space: nowrap;
+}
+.entry-aerial:hover { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
 .entry-remove {
   background: none; border: none; cursor: pointer;
   color: var(--text-muted); font-size: 20px; line-height: 1;
@@ -446,6 +459,23 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: now
   gap: 6px;
   font-size: 12px;
   color: var(--text-muted);
+}
+
+.map-link-btn {
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+  font-family: inherit;
+}
+.map-link-btn:hover {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border-color: var(--accent);
 }
 
 #basemap-select {
