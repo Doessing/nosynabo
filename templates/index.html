@@ -115,7 +115,11 @@ if (HAS_ORTOFOTO) {
       layers: 'orto_foraar_10',
       format: 'image/jpeg',
       version: '1.3.0',
-      transparent: false,
+      // NB: Dataforsyningen's WMS validates TRANSPARENT case-strictly and
+      // rejects Leaflet's default lowercase `false`. Send the uppercase
+      // string explicitly. JPEG can't be transparent anyway, so this is
+      // purely about getting past server-side validation.
+      transparent: 'FALSE',
       token: DATAFORSYNINGEN_TOKEN,
       attribution: '© <a href="https://dataforsyningen.dk/data/981" target="_blank" rel="noopener">SDFI / GeoDanmark</a>',
       maxZoom: 21,
