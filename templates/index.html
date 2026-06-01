@@ -1032,16 +1032,29 @@ function renderEntryCards(container, d, salesHistory) {
 
   if (d.matrikler?.length) {
     const hasMatrikelArea = d.matrikler.some(m => Number.isFinite(m.areal_m2));
+    const showTotal = hasMatrikelArea && Number.isFinite(d.grundareal_m2);
     container.appendChild(html(`
       <div class="card">
         <div class="card-title">Matrikler</div>
-        <table>${d.matrikler.map(m => `
-          <tr>
-            <td>${esc(m.matrikelnummer)}</td>
-            <td>${esc(m.landsejerlavnavn)}</td>
-            ${hasMatrikelArea ? `<td class="num">${Number.isFinite(m.areal_m2) ? `${fmt(Math.round(m.areal_m2))} m²` : '—'}</td>` : ''}
-          </tr>
-        `).join('')}</table>
+        <table class="matrikel-table">
+          <thead><tr>
+            <th>Matr.nr.</th>
+            <th>Ejerlav</th>
+            ${hasMatrikelArea ? `<th class="num">Areal</th>` : ''}
+          </tr></thead>
+          <tbody>${d.matrikler.map(m => `
+            <tr>
+              <td>${esc(m.matrikelnummer)}</td>
+              <td>${esc(m.landsejerlavnavn)}</td>
+              ${hasMatrikelArea ? `<td class="num">${Number.isFinite(m.areal_m2) ? `${fmt(Math.round(m.areal_m2))} m²` : '—'}</td>` : ''}
+            </tr>
+          `).join('')}</tbody>
+          ${showTotal ? `<tfoot><tr>
+            <td class="matrikel-total-label">I alt</td>
+            <td></td>
+            <td class="num">${formatArea(d.grundareal_m2)}</td>
+          </tr></tfoot>` : ''}
+        </table>
       </div>
     `));
   }
@@ -1049,7 +1062,7 @@ function renderEntryCards(container, d, salesHistory) {
   if (d.vurdering) {
     const v = d.vurdering;
     const grundArealRow = Number.isFinite(d.grundareal_m2)
-      ? `<tr><td>Grundareal</td><td>${fmt(Math.round(d.grundareal_m2))} m²</td></tr>`
+      ? `<tr><td>Grundareal</td><td>${formatArea(d.grundareal_m2)}</td></tr>`
       : '';
     const totalDebt = (d.haeftelser || []).reduce((sum, h) => {
       const principal = parseKr(h.hovedstol);
@@ -1217,6 +1230,12 @@ function renderMortgage(h) {
 
 function fmt(n) {
   return n.toLocaleString('da-DK');
+}
+
+function formatArea(m2) {
+  if (!Number.isFinite(m2)) return '—';
+  if (m2 < 10000) return `${fmt(Math.round(m2))} m²`;
+  return `${(m2 / 10000).toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ha`;
 }
 
 function parseKr(s) {
