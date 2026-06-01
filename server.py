@@ -473,6 +473,18 @@ def lookup_matrikel(
             status_code=504,
             detail="Tinglysning.dk svarer ikke lige nu — prøv igen om lidt.",
         )
+    except requests.exceptions.HTTPError as e:
+        if e.response is not None and e.response.status_code == 429:
+            log.warning("lookup-matrikel rate-limited for %s / %s", matrikelnr, ejerlavskode)
+            raise HTTPException(
+                status_code=429,
+                detail="Tinglysning.dk er midlertidigt overbelastet — prøv igen om et øjeblik.",
+            )
+        log.warning("lookup-matrikel upstream HTTP error: %s", e)
+        raise HTTPException(
+            status_code=502,
+            detail="Tinglysning.dk er ikke til at få fat i lige nu — prøv igen om lidt.",
+        )
     except requests.RequestException as e:
         log.warning("lookup-matrikel upstream error: %s", e)
         raise HTTPException(
@@ -530,6 +542,15 @@ def lookup(q: str = Query(...)):
             status_code=504,
             detail="Tinglysning.dk svarer ikke lige nu — prøv igen om lidt.",
         )
+    except requests.exceptions.HTTPError as e:
+        if e.response is not None and e.response.status_code == 429:
+            log.warning("tinglysning rate-limited for %r", q)
+            raise HTTPException(
+                status_code=429,
+                detail="Tinglysning.dk er midlertidigt overbelastet — prøv igen om et øjeblik.",
+            )
+        log.warning("tinglysning upstream HTTP error for %r: %s", q, e)
+        raise HTTPException(status_code=502, detail="Tinglysning.dk unreachable")
     except requests.RequestException as e:
         log.warning("tinglysning upstream error for %r: %s", q, e)
         raise HTTPException(status_code=502, detail="Tinglysning.dk unreachable")
