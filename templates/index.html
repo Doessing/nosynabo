@@ -122,16 +122,29 @@ if (HAS_ORTOFOTO) {
       transparent: 'FALSE',
       token: DATAFORSYNINGEN_TOKEN,
       attribution: '© <a href="https://dataforsyningen.dk/data/981" target="_blank" rel="noopener">SDFI / GeoDanmark</a>',
+      // Don't load satellite tiles at country-overview zoom levels — each
+      // WMS request is expensive (server-side reprojection) and loading
+      // all of Denmark at zoom <12 would fire hundreds of requests and
+      // hang the browser. Force a minimum zoom so the layer only activates
+      // when the user is already looking at a reasonably small area.
+      minZoom: 12,
       maxZoom: 21,
       // Source data is 10 cm — let Leaflet upscale tiles past the WMS's
       // native resolution rather than fall back to a blank tile.
       maxNativeZoom: 20,
+      // Limit tile requests to Denmark's bounding box so Leaflet never
+      // asks the WMS for tiles over the sea or neighbouring countries.
+      bounds: L.latLngBounds([54.5, 7.9], [57.9, 15.3]),
     },
   );
 }
 
 let currentBasemap = localStorage.getItem('nosy-basemap') || 'osm';
 if (!basemapLayers[currentBasemap]) currentBasemap = 'osm';
+// If satellite was saved as preferred basemap but the initial zoom is below
+// minZoom, fall back to OSM for the initial render to avoid a blank map.
+// The user can switch to satellite once they have zoomed in.
+if (currentBasemap === 'satellite' && map.getZoom() < 12) currentBasemap = 'osm';
 basemapLayers[currentBasemap].addTo(map);
 
 const mapControl = L.control({ position: 'topright' });
@@ -172,6 +185,13 @@ let matrikelSyncToken = 0;
 function setBasemap(key) {
   if (!basemapLayers[key] || key === currentBasemap) return;
   map.removeLayer(basemapLayers[currentBasemap]);
+  // Satellite layer has minZoom:12 to avoid loading hundreds of expensive
+  // WMS tiles at country-overview zoom levels. If the user switches to
+  // satellite while zoomed out, snap them to minZoom so tiles load immediately
+  // instead of showing a blank map.
+  if (key === 'satellite' && map.getZoom() < 12) {
+    map.setZoom(12);
+  }
   basemapLayers[key].addTo(map);
   currentBasemap = key;
   localStorage.setItem('nosy-basemap', key);
