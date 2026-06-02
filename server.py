@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 import requests
 from cachetools import TTLCache
 from fastapi import FastAPI, HTTPException, Query, Request, Response
+from pyproj import Transformer
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from mcp.server.fastmcp import FastMCP
@@ -30,6 +31,34 @@ log = logging.getLogger(__name__)
 
 _client = TinglysningClient()
 _matrikel_area_cache: TTLCache = TTLCache(maxsize=4096, ttl=86400)
+
+# WGS84 (EPSG:4326) -> ETRS89 / UTM zone 32N (EPSG:25832). Used for
+# building the skraafoto.dataforsyningen.dk deeplink, which expects a
+# `center=x,y` coordinate pair in EPSG:25832 metres. Transformer is
+# thread-safe and reusable; build once at import time. always_xy=True so
+# we always feed (lon, lat) and receive (x, y).
+_wgs84_to_utm32 = Transformer.from_crs("EPSG:4326", "EPSG:25832", always_xy=True)
+
+
+def _to_epsg_25832(lat: float | None, lng: float | None) -> dict | None:
+    """Project a WGS84 (lat, lng) pair to EPSG:25832 (x, y) metres.
+
+    Returns None if either input is missing or the transform fails (e.g. a
+    coordinate outside the projection's valid domain), so callers can omit
+    the field rather than emit garbage to the frontend.
+    """
+    if lat is None or lng is None:
+        return None
+    try:
+        x, y = _wgs84_to_utm32.transform(float(lng), float(lat))
+    except (TypeError, ValueError):
+        return None
+    # Sanity: UTM 32N covers roughly x in [200_000, 900_000], y > 5_000_000
+    # for the northern hemisphere. Reject obvious garbage rather than ship a
+    # broken skraafoto link.
+    if not (100_000 <= x <= 1_000_000 and 5_000_000 <= y <= 7_000_000):
+        return None
+    return {"x": round(x, 2), "y": round(y, 2)}
 
 
 def _git_version() -> str:
@@ -55,6 +84,14 @@ def _git_version() -> str:
 # (see /opt/nosynabo/update.sh), so this is safe; if the process is
 # ever hot-reloaded in future, this needs to move into /api/version.
 _VERSION = _git_version()
+
+# Dataforsyningen WMS token for the GeoDanmark ortofoto layer. Read at
+# import time from the environment so the secret never lives in the repo.
+# When unset (e.g. local dev without the secret), the satellite basemap
+# option in the UI hides itself. Token is intentionally exposed to the
+# browser as part of the WMS URL — that's how Dataforsyningen public
+# tokens are designed to be used.
+_DATAFORSYNINGEN_TOKEN = os.environ.get("DATAFORSYNINGEN_TOKEN", "").strip()
 
 with open("templates/index.html") as f:
     _index_html = f.read()
@@ -244,14 +281,17 @@ def autocomplete(q: str = Query(...), response: Response = None):
     for r in results:
         d = r.get("data", {})
         if d.get("postnr") and d.get("vejnavn") and d.get("husnr"):
+            lat = d["y"]
+            lng = d["x"]
             out.append({
                 "type": "adresse",
                 "label": r["forslagstekst"],
                 "postnr": d["postnr"],
                 "vejnavn": d["vejnavn"],
                 "husnr": d["husnr"],
-                "lat": d["y"],
-                "lng": d["x"],
+                "lat": lat,
+                "lng": lng,
+                "epsg_25832": _to_epsg_25832(lat, lng),
             })
         elif r.get("type") == "vejnavn" and d.get("navn"):
             # Street-name suggestion: user picks it and we refine to addresses.
@@ -304,6 +344,7 @@ def reverse(lat: float = Query(...), lng: float = Query(...)):
         "husnr": d["husnr"],
         "lat": a_lat,
         "lng": a_lng,
+        "epsg_25832": _to_epsg_25832(a_lat, a_lng),
     }
 
 
@@ -391,6 +432,7 @@ def click(lat: float = Query(...), lng: float = Query(...), response: Response =
         "geometry": feature.get("geometry"),
         "click_lat": lat,
         "click_lng": lng,
+        "click_epsg_25832": _to_epsg_25832(lat, lng),
     }
 
 
@@ -430,6 +472,18 @@ def lookup_matrikel(
         raise HTTPException(
             status_code=504,
             detail="Tinglysning.dk svarer ikke lige nu — prøv igen om lidt.",
+        )
+    except requests.exceptions.HTTPError as e:
+        if e.response is not None and e.response.status_code == 429:
+            log.warning("lookup-matrikel rate-limited for %s / %s", matrikelnr, ejerlavskode)
+            raise HTTPException(
+                status_code=429,
+                detail="Tinglysning.dk er midlertidigt overbelastet — prøv igen om et øjeblik.",
+            )
+        log.warning("lookup-matrikel upstream HTTP error: %s", e)
+        raise HTTPException(
+            status_code=502,
+            detail="Tinglysning.dk er ikke til at få fat i lige nu — prøv igen om lidt.",
         )
     except requests.RequestException as e:
         log.warning("lookup-matrikel upstream error: %s", e)
@@ -488,6 +542,15 @@ def lookup(q: str = Query(...)):
             status_code=504,
             detail="Tinglysning.dk svarer ikke lige nu — prøv igen om lidt.",
         )
+    except requests.exceptions.HTTPError as e:
+        if e.response is not None and e.response.status_code == 429:
+            log.warning("tinglysning rate-limited for %r", q)
+            raise HTTPException(
+                status_code=429,
+                detail="Tinglysning.dk er midlertidigt overbelastet — prøv igen om et øjeblik.",
+            )
+        log.warning("tinglysning upstream HTTP error for %r: %s", q, e)
+        raise HTTPException(status_code=502, detail="Tinglysning.dk unreachable")
     except requests.RequestException as e:
         log.warning("tinglysning upstream error for %r: %s", q, e)
         raise HTTPException(status_code=502, detail="Tinglysning.dk unreachable")
@@ -593,6 +656,11 @@ def index():
     # URL carries ?debug=1 and (b) this server-side flag is true.
     html = _index_html.replace("__DEBUG_ALLOWED__",
                                "true" if _debug_enabled() else "false")
+    # Inject the Dataforsyningen WMS token so the frontend can load the
+    # GeoDanmark ortofoto basemap. Token is read from env at startup
+    # (DATAFORSYNINGEN_TOKEN). Empty string when unset → the JS treats
+    # that as "satellite layer unavailable" and hides the dropdown option.
+    html = html.replace("__DATAFORSYNINGEN_TOKEN__", _DATAFORSYNINGEN_TOKEN)
     # no-cache forces browsers to revalidate the HTML on every load. The
     # static assets it references use ?v=<hash> cache-busting, so they stay
     # cacheable — but the HTML must be fresh to reference the new hashes.

@@ -77,6 +77,15 @@
 <script>
 // ── Map setup ──────────────────────────────────────────────────────────────
 const map = L.map('map').setView([56.0, 10.5], 7);
+
+// Dataforsyningen WMS token, injected by the server from the
+// DATAFORSYNINGEN_TOKEN environment variable. Empty string means the
+// satellite basemap is unavailable in this deployment and the dropdown
+// option is hidden. Token is intentionally exposed to the browser —
+// that's how Dataforsyningen public tokens are designed to be used.
+const DATAFORSYNINGEN_TOKEN = '__DATAFORSYNINGEN_TOKEN__';
+const HAS_ORTOFOTO = DATAFORSYNINGEN_TOKEN.length > 0;
+
 const BASEMAPS = {
   osm: {
     url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -94,24 +103,73 @@ const basemapLayers = Object.fromEntries(
   Object.entries(BASEMAPS).map(([k, cfg]) => [k, L.tileLayer(cfg.url, cfg)])
 );
 
+// Satellite basemap: GeoDanmark ortofoto (10 cm spring imagery) served as
+// WMS by Dataforsyningen. Leaflet asks for tiles in EPSG:3857 (its
+// default CRS) and the WMS reprojects on the fly from the source data's
+// EPSG:25832. Layer is registered alongside OSM/Topo only when a token
+// is present; otherwise the dropdown option is omitted.
+if (HAS_ORTOFOTO) {
+  basemapLayers.satellite = L.tileLayer.wms(
+    'https://api.dataforsyningen.dk/orto_foraar_DAF',
+    {
+      layers: 'orto_foraar',
+      format: 'image/jpeg',
+      version: '1.3.0',
+      // NB: Dataforsyningen's WMS validates TRANSPARENT case-strictly and
+      // rejects Leaflet's default lowercase `false`. Send the uppercase
+      // string explicitly. JPEG can't be transparent anyway, so this is
+      // purely about getting past server-side validation.
+      transparent: 'FALSE',
+      token: DATAFORSYNINGEN_TOKEN,
+      attribution: '© <a href="https://dataforsyningen.dk/data/981" target="_blank" rel="noopener">SDFI / GeoDanmark</a>',
+      // Don't load satellite tiles at country-overview zoom levels — each
+      // WMS request is expensive (server-side reprojection) and loading
+      // all of Denmark at zoom <12 would fire hundreds of requests and
+      // hang the browser. Force a minimum zoom so the layer only activates
+      // when the user is already looking at a reasonably small area.
+      minZoom: 12,
+      maxZoom: 21,
+      // Source data varies by area — 10 cm where available, 12.5 cm elsewhere.
+      // Let Leaflet upscale tiles past the WMS's native resolution rather than
+      // fall back to a blank tile.
+      maxNativeZoom: 20,
+      // Limit tile requests to Denmark's bounding box so Leaflet never
+      // asks the WMS for tiles over the sea or neighbouring countries.
+      bounds: L.latLngBounds([54.5, 7.9], [57.9, 15.3]),
+    },
+  );
+}
+
 let currentBasemap = localStorage.getItem('nosy-basemap') || 'osm';
 if (!basemapLayers[currentBasemap]) currentBasemap = 'osm';
+// If satellite was saved as preferred basemap but the initial zoom is below
+// minZoom, fall back to OSM for the initial render to avoid a blank map.
+// The user can switch to satellite once they have zoomed in.
+if (currentBasemap === 'satellite' && map.getZoom() < 12) currentBasemap = 'osm';
 basemapLayers[currentBasemap].addTo(map);
 
 const mapControl = L.control({ position: 'topright' });
 mapControl.onAdd = function () {
   const el = L.DomUtil.create('div', 'leaflet-control nosy-map-control');
+  const satelliteOption = HAS_ORTOFOTO
+    ? '<option value="satellite">Satelit (GeoDanmark)</option>'
+    : '';
   el.innerHTML = `
     <label class="map-control-item" for="basemap-select">Kortlag
       <select id="basemap-select" aria-label="Vælg kortlag">
         <option value="osm">Standard kort</option>
         <option value="topo">Topografisk kort</option>
+        ${satelliteOption}
       </select>
     </label>
     <label class="map-control-item map-toggle" for="toggle-matrikler">
       <input id="toggle-matrikler" type="checkbox" checked>
       Vis matrikler
     </label>
+    <button type="button" class="map-control-item map-link-btn" id="aerial-link-btn"
+            title="Åbn det viste område i Skråfoto/Luftfoto på en ny fane">
+      Luftfoto ↗
+    </button>
   `;
   L.DomEvent.disableClickPropagation(el);
   L.DomEvent.disableScrollPropagation(el);
@@ -128,9 +186,85 @@ let matrikelSyncToken = 0;
 function setBasemap(key) {
   if (!basemapLayers[key] || key === currentBasemap) return;
   map.removeLayer(basemapLayers[currentBasemap]);
+  // Satellite layer has minZoom:12 to avoid loading hundreds of expensive
+  // WMS tiles at country-overview zoom levels. If the user switches to
+  // satellite while zoomed out, snap them to minZoom so tiles load immediately
+  // instead of showing a blank map.
+  if (key === 'satellite' && map.getZoom() < 12) {
+    map.setZoom(12);
+  }
   basemapLayers[key].addTo(map);
   currentBasemap = key;
   localStorage.setItem('nosy-basemap', key);
+}
+
+// ── Skraafoto / Luftfoto deeplink ──────────────────────────────────────────
+// The skraafoto viewer expects a center coordinate in EPSG:25832 metres.
+// For addresses and map-clicks the server already projects coordinates
+// (epsg_25832 / click_epsg_25832), which keeps the math out of the
+// browser. For the "Luftfoto" map-control button we may not have a
+// selected entry yet, so we fall back to projecting the current map
+// centre client-side.
+//
+// The client-side fallback uses a self-contained UTM forward formula
+// (no proj4 dependency). Accurate to <2 m anywhere in Denmark, which
+// is more than enough to centre a viewer at zoom 17+.
+function wgs84ToUtm32(lat, lng) {
+  const a = 6378137.0;                       // GRS80 semi-major
+  const f = 1 / 298.257222101;               // GRS80 flattening
+  const k0 = 0.9996;
+  const e2 = f * (2 - f);
+  const ep2 = e2 / (1 - e2);
+  const lon0 = 9 * Math.PI / 180;            // UTM zone 32N central meridian
+  const phi = lat * Math.PI / 180;
+  const lam = lng * Math.PI / 180;
+  const N = a / Math.sqrt(1 - e2 * Math.sin(phi) ** 2);
+  const T = Math.tan(phi) ** 2;
+  const C = ep2 * Math.cos(phi) ** 2;
+  const A = Math.cos(phi) * (lam - lon0);
+  const M = a * (
+    (1 - e2 / 4 - 3 * e2 ** 2 / 64 - 5 * e2 ** 3 / 256) * phi
+    - (3 * e2 / 8 + 3 * e2 ** 2 / 32 + 45 * e2 ** 3 / 1024) * Math.sin(2 * phi)
+    + (15 * e2 ** 2 / 256 + 45 * e2 ** 3 / 1024) * Math.sin(4 * phi)
+    - (35 * e2 ** 3 / 3072) * Math.sin(6 * phi)
+  );
+  const x = k0 * N * (A + (1 - T + C) * A ** 3 / 6
+            + (5 - 18 * T + T ** 2 + 72 * C - 58 * ep2) * A ** 5 / 120) + 500000;
+  const y = k0 * (M + N * Math.tan(phi) * (A ** 2 / 2
+            + (5 - T + 9 * C + 4 * C ** 2) * A ** 4 / 24
+            + (61 - 58 * T + T ** 2 + 600 * C - 330 * ep2) * A ** 6 / 720));
+  return { x, y };
+}
+
+function skraafotoUrl(epsg, latlng) {
+  let xy = epsg;
+  if ((!xy || !Number.isFinite(xy.x) || !Number.isFinite(xy.y)) && latlng) {
+    xy = wgs84ToUtm32(latlng.lat, latlng.lng);
+  }
+  if (!xy || !Number.isFinite(xy.x) || !Number.isFinite(xy.y)) return null;
+  return `https://skraafoto.dataforsyningen.dk/?center=${xy.x.toFixed(2)},${xy.y.toFixed(2)}&orientation=north`;
+}
+
+// Pick the best coordinate for the map-control "Luftfoto" button: most
+// recent entry (server-projected) > map centre (client-projected).
+function openAerialFromMapControl() {
+  // Prefer the most recently added entry whose server response carried a
+  // projected coord. Walk backwards so the user gets feedback aligned
+  // with what they last interacted with.
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i];
+    if (e.epsg_25832) {
+      const url = skraafotoUrl(e.epsg_25832, null);
+      if (url) { window.open(url, '_blank', 'noopener'); return; }
+    }
+    if (Number.isFinite(e.lat) && Number.isFinite(e.lng)) {
+      const url = skraafotoUrl(null, { lat: e.lat, lng: e.lng });
+      if (url) { window.open(url, '_blank', 'noopener'); return; }
+    }
+  }
+  const c = map.getCenter();
+  const url = skraafotoUrl(null, { lat: c.lat, lng: c.lng });
+  if (url) window.open(url, '_blank', 'noopener');
 }
 
 function matrikelColorForIndex(i) {
@@ -223,6 +357,11 @@ function initMapControls() {
       localStorage.setItem('nosy-show-matrikler', showMatrikler ? '1' : '0');
       syncMatrikelOverlay();
     });
+  }
+
+  const aerialBtn = document.getElementById('aerial-link-btn');
+  if (aerialBtn) {
+    aerialBtn.addEventListener('click', openAerialFromMapControl);
   }
 }
 
@@ -435,7 +574,7 @@ async function locateMe() {
       input.value = '';
       map.setView([resolved.lat, resolved.lng], 16);
       setSearchFeedback('Adresse fundet via GPS.');
-      addAddress(resolved.label, resolved.lat, resolved.lng);
+      addAddress(resolved.label, resolved.lat, resolved.lng, resolved.epsg_25832 || null);
     } catch {
       setSearchFeedback('GPS-opslag fejlede. Prøv igen.', 'error');
     } finally {
@@ -525,11 +664,11 @@ function selectSuggestion(s) {
   hideSuggestions();
   if (entries.length >= 10) return;
   map.setView([s.lat, s.lng], 16);
-  addAddress(s.label, s.lat, s.lng);
+  addAddress(s.label, s.lat, s.lng, s.epsg_25832 || null);
 }
 
 // ── Multi-address management ───────────────────────────────────────────────
-async function addAddress(label, lat, lng) {
+async function addAddress(label, lat, lng, epsg25832 = null) {
   // Bug 9: reject duplicates (same label already in the list). Scroll the
   // existing entry into view rather than silently returning, so the search
   // still gives visual feedback.
@@ -546,6 +685,7 @@ async function addAddress(label, lat, lng) {
 
   const entry = {
     label, lat, lng,
+    epsg_25832: epsg25832 || null,
     data: null, error: null, loading: true, status: null,
     marker, salesHistory: null, salesLoading: true,
     lookupMode: 'address',
@@ -605,6 +745,7 @@ async function addMatrikel(hit) {
 
   const entry = {
     label: provisionalLabel, lat, lng,
+    epsg_25832: hit.click_epsg_25832 || null,
     data: null, error: null, loading: true, status: null,
     marker, salesHistory: null, salesLoading: false,
     lookupMode: 'matrikel',
@@ -658,6 +799,7 @@ async function loadEntry(entry) {
   const shouldRetry = (res, err) => {
     if (err) return true;                    // network / abort
     if (!res) return true;
+    if (res.status === 429) return true;     // upstream rate-limit — retry after delay
     if (res.status >= 500) return true;      // 502/504 from our backend
     return false;
   };
@@ -687,9 +829,8 @@ async function loadEntry(entry) {
           if (addr) {
             entry.label = `${addr} (via matrikel ${entry.matrikelnr})`;
           }
-        } else {
-          saveToHistory(entry.label, entry.lat, entry.lng);
         }
+        saveToHistory(entry.label, entry.lat, entry.lng);
         const owners = (entry.data.ejere || []).map(e => `${esc(e.navn)} (${esc(e.andel)})`).join('<br>');
         entry.marker.bindPopup(`<div class="popup-address">${esc(entry.data.adresse || entry.label)}</div><div class="popup-owners">${owners}</div>`);
       } catch {
@@ -789,10 +930,21 @@ function renderSidebar() {
     const section = document.createElement('div');
     section.id = `entry-${i}`;
 
+    const aerialUrl = skraafotoUrl(
+      entry.epsg_25832,
+      (Number.isFinite(entry.lat) && Number.isFinite(entry.lng))
+        ? { lat: entry.lat, lng: entry.lng }
+        : null,
+    );
+    const aerialLinkHtml = aerialUrl
+      ? `<a class="entry-aerial" href="${esc(aerialUrl)}" target="_blank" rel="noopener noreferrer" title="Åbn i Skråfoto/Luftfoto">Luftfoto ↗</a>`
+      : '';
+
     section.appendChild(html(`
       <div class="entry-header">
         <span class="entry-num">${i + 1}</span>
         <span class="entry-label">${esc(entry.label)}</span>
+        ${aerialLinkHtml}
         <button class="entry-remove" onclick="removeEntry(${i})" title="Fjern">×</button>
       </div>
     `));
@@ -901,16 +1053,29 @@ function renderEntryCards(container, d, salesHistory) {
 
   if (d.matrikler?.length) {
     const hasMatrikelArea = d.matrikler.some(m => Number.isFinite(m.areal_m2));
+    const showTotal = hasMatrikelArea && Number.isFinite(d.grundareal_m2);
     container.appendChild(html(`
       <div class="card">
         <div class="card-title">Matrikler</div>
-        <table>${d.matrikler.map(m => `
-          <tr>
-            <td>${esc(m.matrikelnummer)}</td>
-            <td>${esc(m.landsejerlavnavn)}</td>
-            ${hasMatrikelArea ? `<td class="num">${Number.isFinite(m.areal_m2) ? `${fmt(Math.round(m.areal_m2))} m²` : '—'}</td>` : ''}
-          </tr>
-        `).join('')}</table>
+        <table class="matrikel-table">
+          <thead><tr>
+            <th>Matr.nr.</th>
+            <th>Ejerlav</th>
+            ${hasMatrikelArea ? `<th class="num">Areal</th>` : ''}
+          </tr></thead>
+          <tbody>${d.matrikler.map(m => `
+            <tr>
+              <td>${esc(m.matrikelnummer)}</td>
+              <td>${esc(m.landsejerlavnavn)}</td>
+              ${hasMatrikelArea ? `<td class="num">${Number.isFinite(m.areal_m2) ? `${fmt(Math.round(m.areal_m2))} m²` : '—'}</td>` : ''}
+            </tr>
+          `).join('')}</tbody>
+          ${showTotal ? `<tfoot><tr>
+            <td class="matrikel-total-label">I alt</td>
+            <td></td>
+            <td class="num">${formatArea(d.grundareal_m2)}</td>
+          </tr></tfoot>` : ''}
+        </table>
       </div>
     `));
   }
@@ -918,7 +1083,7 @@ function renderEntryCards(container, d, salesHistory) {
   if (d.vurdering) {
     const v = d.vurdering;
     const grundArealRow = Number.isFinite(d.grundareal_m2)
-      ? `<tr><td>Grundareal</td><td>${fmt(Math.round(d.grundareal_m2))} m²</td></tr>`
+      ? `<tr><td>Grundareal</td><td>${formatArea(d.grundareal_m2)}</td></tr>`
       : '';
     const totalDebt = (d.haeftelser || []).reduce((sum, h) => {
       const principal = parseKr(h.hovedstol);
@@ -1086,6 +1251,12 @@ function renderMortgage(h) {
 
 function fmt(n) {
   return n.toLocaleString('da-DK');
+}
+
+function formatArea(m2) {
+  if (!Number.isFinite(m2)) return '—';
+  if (m2 < 10000) return `${fmt(Math.round(m2))} m²`;
+  return `${(m2 / 10000).toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ha`;
 }
 
 function parseKr(s) {

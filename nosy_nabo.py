@@ -275,7 +275,10 @@ def get_loan_type_info(rate: float, isin: str | None = None, alias: str | None =
                          candidates: list[{name, delta}]
     """
     if isin:
-        info = lookup_isin(isin)
+        try:
+            info = lookup_isin(isin)
+        except requests.RequestException:
+            info = None
         if info and info["loan_type"]:
             return {
                 "source": "isin",
