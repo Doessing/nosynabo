@@ -829,9 +829,8 @@ async function loadEntry(entry) {
           if (addr) {
             entry.label = `${addr} (via matrikel ${entry.matrikelnr})`;
           }
-        } else {
-          saveToHistory(entry.label, entry.lat, entry.lng);
         }
+        saveToHistory(entry.label, entry.lat, entry.lng);
         const owners = (entry.data.ejere || []).map(e => `${esc(e.navn)} (${esc(e.andel)})`).join('<br>');
         entry.marker.bindPopup(`<div class="popup-address">${esc(entry.data.adresse || entry.label)}</div><div class="popup-owners">${owners}</div>`);
       } catch {
