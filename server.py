@@ -819,7 +819,7 @@ def favicon():
 # Tell crawlers to stay out — the site is geo-blocked to DK and lives behind
 # a free-tier Cloudflare WAF; there's nothing useful for search engines here
 # and indexing only invites scraping attempts.
-_ROBOTS_TXT = "User-agent: *\nAllow: /\n\nSitemap: https://nosy.nosynabo.dk/sitemap.xml\n"
+_ROBOTS_TXT = "User-agent: *\nDisallow: /\n"
 
 
 @app.get("/robots.txt", response_class=PlainTextResponse)
