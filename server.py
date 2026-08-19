@@ -92,7 +92,6 @@ _VERSION = _git_version()
 # browser as part of the WMS URL — that's how Dataforsyningen public
 # tokens are designed to be used.
 _DATAFORSYNINGEN_TOKEN = os.environ.get("DATAFORSYNINGEN_TOKEN", "").strip()
-_NOSYNABO_ENV = os.environ.get("NOSYNABO_ENV", "").strip()
 
 with open("templates/index.html") as f:
     _index_html = f.read()
@@ -662,15 +661,6 @@ def index():
     # (DATAFORSYNINGEN_TOKEN). Empty string when unset → the JS treats
     # that as "satellite layer unavailable" and hides the dropdown option.
     html = html.replace("__DATAFORSYNINGEN_TOKEN__", _DATAFORSYNINGEN_TOKEN)
-    _dev_banner = (
-        '<div style="background:#7c5a00;color:#fff;text-align:center;padding:0.2rem 1rem;'
-        'font-size:0.75rem;font-family:system-ui,sans-serif;position:relative;z-index:9999;">'
-        'Dev-server &mdash; brug produktionsserver: '
-        '<a href="https://nosy.nosynabo.dk" style="color:#ffe082;font-weight:600;">nosy.nosynabo.dk</a> ved problemer.'
-        '</div>'
-        if _NOSYNABO_ENV == "dev" else ""
-    )
-    html = html.replace("__DEV_BANNER__", _dev_banner)
     # no-cache forces browsers to revalidate the HTML on every load. The
     # static assets it references use ?v=<hash> cache-busting, so they stay
     # cacheable — but the HTML must be fresh to reference the new hashes.
