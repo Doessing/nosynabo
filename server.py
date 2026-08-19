@@ -663,10 +663,10 @@ def index():
     # that as "satellite layer unavailable" and hides the dropdown option.
     html = html.replace("__DATAFORSYNINGEN_TOKEN__", _DATAFORSYNINGEN_TOKEN)
     _dev_banner = (
-        '<div style="background:#7c5a00;color:#fff;text-align:center;padding:0.5rem 1rem;'
-        'font-size:0.85rem;font-family:system-ui,sans-serif;position:relative;z-index:9999;">'
-        'Dev-server &mdash; fejl og nedetid kan forekomme. '
-        'Brug <a href="https://nosy.nosynabo.dk" style="color:#ffe082;font-weight:600;">nosy.nosynabo.dk</a> ved problemer.'
+        '<div style="background:#7c5a00;color:#fff;text-align:center;padding:0.2rem 1rem;'
+        'font-size:0.75rem;font-family:system-ui,sans-serif;position:relative;z-index:9999;">'
+        'Dev-server &mdash; brug produktionsserver: '
+        '<a href="https://nosy.nosynabo.dk" style="color:#ffe082;font-weight:600;">nosy.nosynabo.dk</a> ved problemer.'
         '</div>'
         if _NOSYNABO_ENV == "dev" else ""
     )
