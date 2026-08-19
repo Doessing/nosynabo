@@ -1106,6 +1106,7 @@ function renderEntryCards(container, d, salesHistory) {
       </td></tr>
       <tr><td>Samlet pant (est.)</td><td>${fmt(Math.round(totalDebt))} kr.</td></tr>
       <tr><td>Friværdi (est.)</td><td class="${frivaerdi < 0 ? 'value-negative' : 'value-positive'}">${fmt(Math.round(frivaerdi))} kr.${frivaerdiPct !== null ? ` <span class="value-subtle">(${frivaerdiPct}%)</span>` : ''}</td></tr>
+      <tr><td colspan="2" class="card-note">Est. af lyst pant - reel friværdi ofte højere.</td></tr>
     ` : `
       <tr><td>Samlet pant</td><td class="text-muted text-italic">— Ingen gæld —</td></tr>
       <tr><td>Friværdi</td><td class="value-positive">${fmt(v.ejendomsvaerdi)} kr. <span class="value-subtle">(100%)</span></td></tr>
