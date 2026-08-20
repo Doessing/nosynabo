@@ -816,10 +816,10 @@ def favicon():
     return Response(content=_FAVICON_SVG, media_type="image/svg+xml")
 
 
-# Tell crawlers to stay out — the site is geo-blocked to DK and lives behind
-# a free-tier Cloudflare WAF; there's nothing useful for search engines here
-# and indexing only invites scraping attempts.
-_ROBOTS_TXT = "User-agent: *\nAllow: /\n\nSitemap: https://nosy.nosynabo.dk/sitemap.xml\n"
+# Deny by default so forks, test boxes and local checkouts of this public repo
+# never get indexed by accident. Prod (nosy.nosynabo.dk) is the only deployment
+# meant to be indexed and overrides this in nginx, along with the meta tag.
+_ROBOTS_TXT = "User-agent: *\nDisallow: /\n"
 
 
 @app.get("/robots.txt", response_class=PlainTextResponse)
