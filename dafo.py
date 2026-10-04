@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import re
+import threading
 from datetime import datetime, timezone
 from math import hypot
 from typing import Any
@@ -75,14 +76,30 @@ def _get(url: str, **kw: Any) -> requests.Response:
     raise AssertionError("unreachable")
 
 
+def _json(resp: requests.Response, what: str) -> Any:
+    try:
+        return resp.json()
+    except ValueError:
+        raise DafoError(f"{what}: invalid JSON response") from None
+
+
 def gsearch(resource: str, q: str, limit: int = 10) -> list[dict]:
-    resp = _get(
+    try:
+        resp = _get(
         f"{GSEARCH_URL}/{resource}",
         # gsearch rejects stray commas ("Vej , 1234") with HTTP 400 and
         # doesn't need them for matching; collapse to plain words.
-        params={"q": " ".join(q.replace(",", " ").split()), "limit": limit, "token": _env("DATAFORSYNINGEN_TOKEN")},
-    )
-    return resp.json() or []
+            params={"q": " ".join(q.replace(",", " ").split()), "limit": limit, "token": _env("DATAFORSYNINGEN_TOKEN")},
+        )
+    except requests.HTTPError as e:
+        # Never let the token in the URL leak into logs via the exception.
+        status = e.response.status_code if e.response is not None else "?"
+        raise DafoError(f"gsearch {resource} HTTP {status}") from None
+    except DafoError:
+        raise
+    except requests.RequestException as e:
+        raise DafoError(f"gsearch {resource} unreachable: {type(e).__name__}") from None
+    return _json(resp, f"gsearch {resource}") or []
 
 
 def _now() -> str:
@@ -116,7 +133,7 @@ def gql(body: str) -> dict:
         raise DafoError(f"Datafordeler GraphQL HTTP {status}") from None
     except requests.RequestException as e:
         raise DafoError(f"Datafordeler GraphQL unreachable: {type(e).__name__}") from None
-    data = resp.json()
+    data = _json(resp, "Datafordeler GraphQL")
     if data.get("errors"):
         msg = "; ".join(str(err.get("message")) for err in data["errors"])
         raise DafoError(f"Datafordeler GraphQL error: {msg}")
@@ -341,6 +358,8 @@ _JORD_FIELDS = ("id_lokalId matrikelnummer ejerlavLokalId registreretAreal"
                 " samletFastEjendomLokalId kommuneLokalId status")
 
 _mat_cache: TTLCache = TTLCache(maxsize=4096, ttl=3600)
+# FastAPI runs sync endpoints in a thread pool; TTLCache is not thread-safe.
+_mat_lock = threading.RLock()
 
 
 def _pick_live(nodes: list[dict]) -> dict | None:
@@ -350,7 +369,7 @@ def _pick_live(nodes: list[dict]) -> dict | None:
     return nodes[0] if nodes else None
 
 
-@cached(_mat_cache, key=lambda m, e: ("jordstykke", m, e))
+@cached(_mat_cache, lock=_mat_lock, key=lambda m, e: ("jordstykke", m, e))
 def jordstykke(matrikelnr: str, ejerlavskode: str) -> dict | None:
     data = gql(f'MAT_Jordstykke(virkningstid:$NOW, first:5, where:{{'
                f'matrikelnummer:{{eq:{_lit(matrikelnr)}}}, ejerlavLokalId:{{eq:{_lit(ejerlavskode)}}}'
@@ -358,7 +377,7 @@ def jordstykke(matrikelnr: str, ejerlavskode: str) -> dict | None:
     return _pick_live(_nodes(data, "MAT_Jordstykke"))
 
 
-@cached(_mat_cache, key=lambda i: ("jordstykke_id", i))
+@cached(_mat_cache, lock=_mat_lock, key=lambda i: ("jordstykke_id", i))
 def jordstykke_by_id(jordstykke_id: str) -> dict | None:
     data = gql(f'MAT_Jordstykke(virkningstid:$NOW, first:5,'
                f' where:{{id_lokalId:{{eq:{_lit(jordstykke_id)}}}}}){{ nodes{{ {_JORD_FIELDS} }} }}')
@@ -371,7 +390,7 @@ def jordstykker_by_sfe(sfe: str) -> list[dict]:
     return [n for n in _nodes(data, "MAT_Jordstykke") if n.get("status") == "Gældende"]
 
 
-@cached(_mat_cache, key=lambda k: ("ejerlavsnavn", k))
+@cached(_mat_cache, lock=_mat_lock, key=lambda k: ("ejerlavsnavn", k))
 def ejerlavsnavn(ejerlavskode: str) -> str | None:
     data = gql(f'MAT_Ejerlav(virkningstid:$NOW, first:1,'
                f' where:{{id_lokalId:{{eq:{_lit(ejerlavskode)}}}}}){{ nodes{{ ejerlavsnavn }} }}')
@@ -379,7 +398,7 @@ def ejerlavsnavn(ejerlavskode: str) -> str | None:
     return n[0]["ejerlavsnavn"] if n else None
 
 
-@cached(_mat_cache, key=lambda n: ("ejerlavskode", n))
+@cached(_mat_cache, lock=_mat_lock, key=lambda n: ("ejerlavskode", n))
 def ejerlavskode_by_navn(navn: str) -> str | None:
     data = gql(f'MAT_Ejerlav(virkningstid:$NOW, first:2,'
                f' where:{{ejerlavsnavn:{{eq:{_lit(navn)}}}}}){{ nodes{{ id_lokalId }} }}')
@@ -388,7 +407,7 @@ def ejerlavskode_by_navn(navn: str) -> str | None:
     return n[0]["id_lokalId"] if len(n) == 1 else None
 
 
-@cached(_mat_cache, key=lambda i: ("geometry", i))
+@cached(_mat_cache, lock=_mat_lock, key=lambda i: ("geometry", i))
 def jordstykke_geometry(jordstykke_id: str) -> dict | None:
     """WGS84 GeoJSON geometry for a jordstykke (all its lodflader merged)."""
     data = gql(f'MAT_Lodflade(virkningstid:$NOW, first:50,'

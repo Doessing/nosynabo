@@ -43,7 +43,10 @@ class ResolvedAddress:
     husnr: str
     etage: str | None
     door: str | None
-    adresse_uuid: str          # DAR adresse UUID - also used by Boligsiden
+    # DAR adresse UUID (used by Boligsiden). Exception: if no etage/dør was
+    # typed and the building only has flats, this is the husnummer
+    # (adgangsadresse) UUID instead - Boligsiden then has no history.
+    adresse_uuid: str
     adgang_uuid: str           # DAR husnummer (adgangsadresse) UUID
     kommunekode: str
     matrikelnr: str            # e.g. "4hf" — used to find tingbog via matrikel
@@ -77,10 +80,20 @@ def _search(query: str) -> list[dict[str, Any]]:
 
 
 def _unit_tokens(query: str, husnr_digits: str, postnr: str | None) -> set[str]:
-    """Lower-cased query words that could be an etage/dør (husnr/postnr excluded)."""
-    words = {w.strip(".").lower() for w in query.replace(",", " ").split()}
-    words.discard(postnr or "")
-    return {w for w in words if w and not w.startswith(husnr_digits)}
+    """Lower-cased query words that could be an etage/dør.
+
+    Drops only the first house-number word and the postnr, so a floor equal
+    to the house number ("Vej 1, 1. tv") is still seen as typed.
+    """
+    words = [w.strip(".").lower() for w in query.replace(",", " ").split()]
+    for i, w in enumerate(words):
+        m = _HUSNR_RE.fullmatch(w)
+        if m and re.match(r"\d+", w).group(0) == husnr_digits:
+            del words[i]
+            break
+    if postnr and postnr in words:
+        words.remove(postnr)
+    return {w for w in words if w}
 
 
 def _best_hit(hits: list[dict[str, Any]], husnr_digits: str,
