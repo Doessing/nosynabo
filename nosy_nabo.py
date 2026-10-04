@@ -312,6 +312,34 @@ def get_loan_type_info(rate: float, isin: str | None = None, alias: str | None =
     }
 
 
+def _unit_of(adresse: str) -> list[str]:
+    """Etage/dør tokens of a tinglysning address, e.g. "Vej 29, ST. 4, 6700 By"
+    -> ["st", "4"]; [] for the main property "Vej 29, 6700 By"."""
+    parts = [p.strip() for p in (adresse or "").split(",")]
+    if len(parts) < 3:
+        return []
+    return parts[1].lower().replace(".", " ").split()
+
+
+def _pick_item(items: list[dict], etage: str | None, door: str | None) -> dict:
+    """Choose the ejendomsoeg hit for the requested unit.
+
+    A building split into ejerlejligheder returns one tingbog per flat plus
+    one for the main property, in no useful order. Pick the flat matching
+    etage/dør; without a unit (or if the flat has no own tingbog, e.g. a
+    rental flat) pick the main property.
+    """
+    want = [u.lower() for u in (etage, door) if u]
+    if want:
+        for it in items:
+            if _unit_of(it.get("adresse")) == want:
+                return it
+    for it in items:
+        if not _unit_of(it.get("adresse")):
+            return it
+    return items[0]
+
+
 class TinglysningClient:
     # Upstream tinglysning.dk has been observed to hang for minutes on
     # individual requests. Cap every call so one slow property doesn't tie
@@ -468,6 +496,8 @@ class TinglysningClient:
         *,
         matrikelnr: str | None = None,
         ejerlavskode: str | None = None,
+        etage: str | None = None,
+        door: str | None = None,
     ) -> dict:
         """Full lookup: search for a property and return its tingbog data.
 
@@ -502,7 +532,7 @@ class TinglysningClient:
         """
         items = self.search_property(postnummer, vejnavn, husnummer)
         if items:
-            tingbog = self.get_tingbog(items[0]["uuid"])
+            tingbog = self.get_tingbog(_pick_item(items, etage, door)["uuid"])
             ejernavn = (tingbog.get("ejere") or [{}])[0].get("navn") or ""
             andelsbolig = None
             if self._skal_spørge_andel(items, ejernavn):

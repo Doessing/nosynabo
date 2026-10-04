@@ -205,6 +205,8 @@ def lookup_property(address: str) -> dict:
             resolved.husnr,
             matrikelnr=resolved.matrikelnr or None,
             ejerlavskode=resolved.ejerlavskode or None,
+            etage=resolved.etage,
+            door=resolved.door,
         )
     except RuntimeError as e:
         return {"error": str(e)}
@@ -445,6 +447,8 @@ def lookup(q: str = Query(...)):
             resolved.husnr,
             matrikelnr=resolved.matrikelnr or None,
             ejerlavskode=resolved.ejerlavskode or None,
+            etage=resolved.etage,
+            door=resolved.door,
         )
     except requests.Timeout:
         log.warning("tinglysning timeout for %r", q)

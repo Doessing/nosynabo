@@ -127,3 +127,11 @@ DAWA shut down 2026-10-01 (`410 Gone`). Search box -> Dataforsyningen gsearch v2
 addresses, matrikler, areas, polygons, map click and GPS -> Datafordeler GraphQL
 (DAR + MAT) via `dafo.py`. Browser API contract unchanged. Decisions and
 long-term TODOs: `docs/dawa-migration-plan.md` sections 9-10.
+
+## lejlighedsfix (2026-10)
+
+Ejerlejligheder have their own tingbog in ejendomsoeg, but `lookup_address`
+took the first hit (a random flat in the building). It now picks the hit
+whose etage/dør matches the resolved address, else the main property.
+Autocomplete falls back to gsearch `adresse` when `husnummer` has no match,
+so `Vej 29, 1` suggests the flats. Regression: Nygårdsvej 29 (1. 5 + hoved).

@@ -11,6 +11,7 @@ where checks is a dict with optional keys:
     has_ejd        bool   result["uuid"] is not None
     has_fallback   bool   result["_matrikel_fallback"] is not None
     owner_contains str    substring expected in first owner name (case-insensitive)
+    adresse_is     str    exact tingbog address (picks the right ejerlejlighed)
     error          bool   lookup_address should raise (True) or not (False, default)
 
 Add new test cases here whenever a bug is fixed or a new feature is verified.
@@ -108,6 +109,16 @@ CASES = [
         "Sonnesgade 15, st. tv, 8000 Aarhus C",
         {"has_andel": False},
     ),
+    (
+        "ejerlejlighed / Nygårdsvej 29, 1. 5 Esbjerg",
+        "Nygårdsvej 29, 1. 5, 6700 Esbjerg",
+        {"adresse_is": "Nygårdsvej 29, 1. 5, 6700 Esbjerg"},
+    ),
+    (
+        "ejerlejlighed-hoved / Nygårdsvej 29 Esbjerg",
+        "Nygårdsvej 29, 6700 Esbjerg",
+        {"adresse_is": "Nygårdsvej 29, 6700 Esbjerg"},
+    ),
     # ------------------------------------------------------------------
     # Erhverv og offentlige ejendomme
     # ------------------------------------------------------------------
@@ -160,6 +171,8 @@ def run() -> int:
                 r.postnr, r.vejnavn, r.husnr,
                 matrikelnr=r.matrikelnr,
                 ejerlavskode=r.ejerlavskode,
+                etage=r.etage,
+                door=r.door,
             )
             if expect_error:
                 failed += 1
@@ -197,6 +210,9 @@ def run() -> int:
             kw = checks["owner_contains"].lower()
             if kw not in navn:
                 failures.append(f"owner_contains={kw!r} not in {navn!r}")
+
+        if "adresse_is" in checks and result.get("adresse") != checks["adresse_is"]:
+            failures.append(f"adresse={result.get('adresse')!r} (expected {checks['adresse_is']!r})")
 
         if failures:
             failed += 1
