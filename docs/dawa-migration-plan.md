@@ -256,7 +256,7 @@ Implementeret på `feat/dawa-to-datafordeler`. DAWA svarede `410 Gone`, så fase
 | 3 | API-kontrakten mod browseren er uændret |
 | 4 | Egen lille WKT-parser (2D POINT/POLYGON/MULTIPOLYGON) frem for shapely - KISS |
 | 5 | Resolver: gsearch, forkort bagfra ned til husnummer, vælg hit på husnr/postnr, join DAR -> MAT |
-| 6 | Uden ciffer: vejnavne. Med ciffer: adgangsadresser |
+| 6 | Uden ciffer: ét forslag pr. vej + by (sorteret på postnr, maks 50 fra gsearch; bynavn indsnævrer). Valg giver `Vej , 1234 By` med markør efter vejnavnet. Med ciffer: adgangsadresser |
 | 7 | GPS: `DAR_Adressepunkt within` i felter på 60/200/500 m |
 | 8 | Kortklik: `MAT_Lodflade contains`. Punktopslaget caches ikke (giver ingen mening) |
 | 9 | `DafoError` arver `requests.RequestException` -> 502 |

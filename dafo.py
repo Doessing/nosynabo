@@ -78,7 +78,9 @@ def _get(url: str, **kw: Any) -> requests.Response:
 def gsearch(resource: str, q: str, limit: int = 10) -> list[dict]:
     resp = _get(
         f"{GSEARCH_URL}/{resource}",
-        params={"q": q, "limit": limit, "token": _env("DATAFORSYNINGEN_TOKEN")},
+        # gsearch rejects stray commas ("Vej , 1234") with HTTP 400 and
+        # doesn't need them for matching; collapse to plain words.
+        params={"q": " ".join(q.replace(",", " ").split()), "limit": limit, "token": _env("DATAFORSYNINGEN_TOKEN")},
     )
     return resp.json() or []
 
@@ -192,14 +194,21 @@ def autocomplete(q: str) -> list[dict]:
     adgangsadresser (husnummer level - what tinglysning wants).
     """
     if not re.search(r"\d", q):
+        # One suggestion per street *and town* (like DAWA did); a street name
+        # alone is ambiguous. gsearch caps at 50 and has no useful ranking,
+        # so sort by postnr; typing the town name narrows the list.
         out, seen = [], set()
-        for h in gsearch("navngivenvej", q, limit=20):
+        for h in gsearch("navngivenvej", q, limit=50):
             navn = h.get("vejnavn")
-            if navn and navn not in seen:
-                seen.add(navn)
-                out.append({"type": "vejnavn", "label": navn, "vejnavn": navn})
+            postnr = (h.get("postnummer") or "").split(",")[0].strip()
+            postnavn = (h.get("postnummernavn") or "").split(",")[0].strip()
+            if not (navn and postnr) or (navn, postnr) in seen:
+                continue
+            seen.add((navn, postnr))
+            out.append({"type": "vejnavn", "label": f"{navn}, {postnr} {postnavn}",
+                        "vejnavn": navn, "postnr": postnr, "postnavn": postnavn})
         if out:
-            return out[:10]
+            return sorted(out, key=lambda r: (r["postnr"], r["vejnavn"]))
     out = []
     for h in gsearch("husnummer", q, limit=20):
         ll = _gs_latlng(h)
