@@ -19,8 +19,9 @@ from datetime import datetime, timedelta
 import requests
 from cachetools import TTLCache
 
+import dafo
+
 BASE_URL = "https://www.tinglysning.dk/tinglysning/unsecrest"
-DAWA_URL = "https://dawa.aws.dk/autocomplete"
 DST_API_URL = "https://api.statbank.dk/v1/data"
 FIRDS_URL = "https://registers.esma.europa.eu/solr/esma_registers_firds/select"
 
@@ -335,53 +336,14 @@ class TinglysningClient:
             self._token = _solve_altcha(resp.json())
         return self._token
 
-    def autocomplete_address(self, query: str) -> list[dict]:
-        """Autocomplete a Danish address using DAWA.
-
-        Returns a list of suggestions with 'tekst' (text) and 'data' fields.
-
-        Retries once on stale keep-alive connection / read timeout so users
-        editing the search field don't see a multi-second pause when DAWA's
-        idle connection has been dropped server-side.
-        """
-        params = {
-            "q": query,
-            "caretpos": len(query),
-            "per_side": 20,
-            "side": 1,
-            "fuzzy": "true",
-            "supplerendebynavn": "true",
-        }
-        # Shorter timeout than the default tinglysning one: autocomplete is
-        # interactive, so we'd rather fail fast and let the next keystroke retry.
-        timeout = (3, 5)
-        for attempt in range(2):
-            try:
-                resp = self.session.get(DAWA_URL, params=params, timeout=timeout)
-                resp.raise_for_status()
-                return resp.json()
-            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
-                if attempt == 1:
-                    raise
-                continue
-        return []
-
     def resolve_address(self, query: str) -> tuple[str, str, str]:
-        """Resolve a freeform address string into (postnummer, vejnavn, husnummer).
-
-        Uses DAWA fuzzy autocomplete to find the best match, then extracts
-        the structured address components from the result.
-        """
-        results = self.autocomplete_address(query)
-        # We need a result that has full address data (not just a street name suggestion)
-        for r in results:
-            data = r.get("data", {})
-            if data.get("postnr") and data.get("vejnavn") and data.get("husnr"):
-                return data["postnr"], data["vejnavn"], data["husnr"]
-
-        raise RuntimeError(f"Could not resolve address: {query!r}\n"
-                           f"  DAWA returned {len(results)} suggestions but none had full address data.\n"
-                           f"  Try being more specific (e.g. include house number and postal code).")
+        """Resolve a freeform address string into (postnummer, vejnavn, husnummer)."""
+        from resolver import resolve, ResolveError
+        try:
+            r = resolve(query)
+        except ResolveError as e:
+            raise RuntimeError(str(e)) from e
+        return r.postnr, r.vejnavn, r.husnr
 
     def _get_json(self, url: str, params: dict) -> dict:
         """GET a tinglysning endpoint, retrying once on stale connection or expired token.
@@ -515,7 +477,7 @@ class TinglysningClient:
         association's main address is in BOTH registers (e.g. "Ryttervænget
         101A" has a tingbog for the association AND an andelsboligbog
         entry), while individual member addresses (e.g. "107A") are ONLY in
-        andelsoeg. There's no marker in DAWA to distinguish these cases up
+        andelsoeg. There's no marker in DAR to distinguish these cases up
         front, so we use a two-step strategy:
 
           1. ejendomsoeg first — cheap and fast.
@@ -714,10 +676,9 @@ class TinglysningClient:
         click_lat: float | None = None,
         click_lng: float | None = None,
     ) -> tuple[dict, str] | None:
-        """Find the tingbog for a matrikel by asking DAWA for its addresses.
+        """Find the tingbog for a matrikel by asking DAR for its addresses.
 
-        DAWA knows every adgangsadresse tied to a given (ejerlav, matrikel)
-        pair. We iterate those addresses, ask tinglysning.dk for each, and
+        DAR knows every adgangsadresse (husnummer) tied to a given jordstykke. We iterate those addresses, ask tinglysning.dk for each, and
         return the first hit whose tingbog actually covers our matrikel.
         Far more targeted than scanning every tingbog on the street.
 
@@ -730,17 +691,8 @@ class TinglysningClient:
 
         Returns (tingbog_data, parent_address_label) or None.
         """
-        r = requests.get(
-            "https://api.dataforsyningen.dk/adgangsadresser",
-            params={
-                "ejerlavkode": ejerlavskode,
-                "matrikelnr": matrikelnr,
-                "struktur": "mini",
-            },
-            timeout=10,
-        )
-        r.raise_for_status()
-        candidates = r.json() or []
+        jord = dafo.jordstykke(matrikelnr, ejerlavskode)
+        candidates = dafo.husnumre_on_jordstykke(jord["id_lokalId"]) if jord else []
         upstream_errors = 0
         candidates_tried = 0
         for c in candidates:
@@ -792,57 +744,23 @@ class TinglysningClient:
         # SFE fallback: a matrikel without its own adgangsadresse (typical
         # for marker/enge/skove that share a samlet fast ejendom with a
         # bebygget naboparcel) cannot be resolved by the loop above. Ask
-        # DAWA's jordstykker endpoint for the matrikel's SFE-nummer, then
-        # iterate adgangsadresser on every sibling matrikel sharing that
-        # SFE. Example: 4e Lintrup By (mark, 0 adresser) shares SFE 5035243
+        # Matriklen for the matrikel's SFE-nummer, then iterate
+        # adgangsadresser on every sibling jordstykke sharing that SFE. Example: 4e Lintrup By (mark, 0 adresser) shares SFE 5035243
         # with 9u Klelund By (Grindstedvej 21) — same tingbog, BFE 5035243.
-        try:
-            jr = requests.get(
-                "https://api.dataforsyningen.dk/jordstykker",
-                params={
-                    "ejerlavkode": ejerlavskode,
-                    "matrikelnr": matrikelnr,
-                    "struktur": "flad",
-                },
-                timeout=10,
-            )
-            jr.raise_for_status()
-            js = jr.json() or []
-            sfe = js[0].get("sfeejendomsnr") if js else None
-        except (requests.RequestException, ValueError, IndexError, KeyError):
-            sfe = None
-
+        sfe = (jord or {}).get("samletFastEjendomLokalId")
         if not sfe:
             return None
 
         try:
-            sr = requests.get(
-                "https://api.dataforsyningen.dk/jordstykker",
-                params={"sfeejendomsnr": sfe, "struktur": "flad"},
-                timeout=10,
-            )
-            sr.raise_for_status()
-            siblings = sr.json() or []
-        except (requests.RequestException, ValueError):
+            siblings = dafo.jordstykker_by_sfe(sfe)
+        except requests.RequestException:
             return None
 
         for sib in siblings:
-            sib_mat = sib.get("matrikelnr")
-            sib_ejer = str(sib.get("ejerlavkode") or "")
-            if sib_mat == matrikelnr and sib_ejer == ejerlavskode:
+            if sib["id_lokalId"] == jord["id_lokalId"]:
                 continue  # already tried above
             try:
-                ar = requests.get(
-                    "https://api.dataforsyningen.dk/adgangsadresser",
-                    params={
-                        "ejerlavkode": sib_ejer,
-                        "matrikelnr": sib_mat,
-                        "struktur": "mini",
-                    },
-                    timeout=10,
-                )
-                ar.raise_for_status()
-                sib_addrs = ar.json() or []
+                sib_addrs = dafo.husnumre_on_jordstykke(sib["id_lokalId"])
             except requests.RequestException:
                 continue
             for c in sib_addrs:
@@ -876,7 +794,7 @@ class TinglysningClient:
     def lookup(self, query: str) -> dict:
         """Look up a property by freeform address string.
 
-        Resolves the address via DAWA, then fetches the tingbog.
+        Resolves the address via resolver.py, then fetches the tingbog.
         """
         postnummer, vejnavn, husnummer = self.resolve_address(query)
         return self.lookup_address(postnummer, vejnavn, husnummer)

@@ -6,7 +6,7 @@
 
 The tool aggregates publicly available Danish property data from multiple open registers. It retrieves only **public data from public sources** and presents it in an easy-to-use interface.
 
-nosynabo composes information from official Danish registers — tinglysning.dk (property records), DAWA (address data), Boligsiden (sale history), and others — requiring no special authorization. All data accessed is by design publicly available to anyone; the tool simply assembles it conveniently in one place via a map-based web UI or command-line interface.
+nosynabo composes information from official Danish registers — tinglysning.dk (property records), Dataforsyningen/Datafordeler (address and cadastre data), Boligsiden (sale history), and others — requiring no special authorization. All data accessed is by design publicly available to anyone; the tool simply assembles it conveniently in one place via a map-based web UI or command-line interface.
 
 ---
 
@@ -37,6 +37,10 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
+# Address/cadastre credentials (free, see "Data sources"). Never commit them.
+export DATAFORSYNINGEN_TOKEN=...   # gsearch (search box) + satellite basemap
+export DATAFORDELER_API_KEY=...    # Datafordeler GraphQL (DAR + Matriklen)
+
 # Web UI (http://localhost:8000)
 python server.py
 
@@ -53,7 +57,7 @@ python nosy_nabo.py "Eksempelvej 1, 1234 Byby"
 docker build -t nosynabo .
 
 # Run (web UI on http://localhost:8000)
-docker run -p 8000:8000 nosynabo
+docker run -p 8000:8000 -e DATAFORSYNINGEN_TOKEN -e DATAFORDELER_API_KEY nosynabo
 ```
 
 ### Production deployment (Docker Compose + Caddy)
@@ -74,7 +78,7 @@ Caddy listens on port **18000** and proxies to the app. Set `DUCKDNS_DOMAIN` to 
 
 Open `http://localhost:8000` in a browser.
 
-- **Search** by typing an address in the sidebar — autocomplete is powered by [DAWA](https://dawadocs.dataforsyningen.dk).
+- **Search** by typing an address in the sidebar — autocomplete is powered by Dataforsyningen [gsearch](https://dataforsyningen.dk/data/4987).
 - **Click the map** to look up the property at that location. Clicks are resolved by the **matrikel under the cursor** (cadastral parcel) rather than the nearest street address — so a click on parcel A always returns parcel A's tingbog, even if a neighbouring address happens to be physically closer to the click point.
 - Up to **10 addresses** can be pinned simultaneously. Each gets a numbered marker; click a marker to scroll to its details in the sidebar.
 - Remove any address with the **×** button in its header.
@@ -85,9 +89,9 @@ Open `http://localhost:8000` in a browser.
 
 | Endpoint | Parameters | Description |
 |---|---|---|
-| `GET /api/autocomplete` | `q` | DAWA address autocomplete |
+| `GET /api/autocomplete` | `q` | Address/street autocomplete (gsearch) |
 | `GET /api/lookup` | `q` | Full property lookup by freeform address |
-| `GET /api/click` | `lat`, `lng` | Resolve a map click to its matrikel via DAWA `jordstykker/reverse` |
+| `GET /api/click` | `lat`, `lng` | Resolve a map click to its matrikel via Matriklen point-in-polygon (`MAT_Lodflade`) |
 | `GET /api/lookup-matrikel` | `matrikelnr`, `ejerlavskode`, `lat?`, `lng?` | Tingbog lookup driven by matrikel identity. Optional `lat`/`lng` enable andelsbolig enrichment for the dwelling closest to the click. |
 | `GET /api/sales-history` | `q` | Boligsiden sale history + active-listing status |
 | `GET /api/reverse` | `lat`, `lng` | Legacy reverse geocoder (kept for backwards compatibility; UI no longer calls it) |
@@ -144,8 +148,8 @@ nosynabo composes data from several public Danish registers. None of them requir
 
 | Source | Used for | Auth |
 |---|---|---|
-| **DAWA** (Dataforsyningen) | Freeform address resolution, autocomplete, reverse geocoding, enumeration of addresses on a matrikel | None |
-| **Datafordeler BBR** | Not currently used by the UI, but `resolve()` returns the `adgang_uuid` which is BBR's primary key | None |
+| **Dataforsyningen gsearch v2** | Freeform address resolution and search-box autocomplete | `DATAFORSYNINGEN_TOKEN` (free) |
+| **Datafordeler GraphQL** (DAR + Matriklen) | Address <-> matrikel joins, parcel areas, SFE/BFE, parcel polygons, map-click and GPS reverse lookups | `DATAFORDELER_API_KEY` (free service user) |
 | **tinglysning.dk ejendomsoeg** | Physical property records: owners, valuation, mortgages, easements | ALTCHA |
 | **tinglysning.dk andelsoeg** | Cooperative-share records: individual member's mortgages on their share | ALTCHA |
 | **Boligsiden** | Historical sale prices; active listing status and link | None |
@@ -160,7 +164,7 @@ ALTCHA is a CAPTCHA-style proof-of-work: the server hands out a challenge, the c
 
 There are two distinct flows depending on how the user identifies the property:
 
-- **Address flow** (`/api/lookup`) — typed address from the search box, resolved via DAWA, then tinglysning by `(postnr, vejnavn, husnr)`.
+- **Address flow** (`/api/lookup`) — typed address from the search box, resolved via gsearch + DAR, then tinglysning by `(postnr, vejnavn, husnr)`.
 - **Map-click flow** (`/api/click` → `/api/lookup-matrikel`) — pixel-precise click on the map, resolved by the matrikel under the cursor. Avoids the misalignment risk of the older haversine-based reverse geocoder, which could resolve a click on parcel A to an address on neighbouring parcel B.
 
 ### Address flow
@@ -170,7 +174,7 @@ A single call to `GET /api/lookup?q=…` kicks off this decision tree. The ejend
 ```mermaid
 flowchart TD
     A["Freeform address<br/>e.g. 'Eksempelvej 1 1234 Byby'"]
-    A --> B[DAWA resolve]
+    A --> B[gsearch + DAR resolve]
     B --> C["Returns: postnr, vejnavn, husnr,<br/>matrikelnr, ejerlav,<br/>lat/lng, adresse_uuid"]
 
     C --> D[andelsoeg/soeg<br/>always, in parallel]
@@ -182,7 +186,7 @@ flowchart TD
 
     E --> E1{hit?}
     E1 -- yes --> E2[hentejendomsbog UUID<br/>&rarr; owners, valuation,<br/>mortgages, easements]
-    E1 -- no --> F[DAWA: all addresses<br/>sharing same matrikel]
+    E1 -- no --> F[DAR: all addresses<br/>sharing same matrikel]
     F --> G[For each sibling address:<br/>ejendomsoeg/soeg]
     G --> G1{any hit?}
     G1 -- yes --> E2
@@ -197,18 +201,18 @@ flowchart TD
     J --> L[Loan-type estimation<br/>per mortgage via DST/ESMA]
 ```
 
-The matrikel fallback (the `F -> G -> G1` branch) handles umbrella properties — hospitals, large farms, cooperative associations — where the user's exact address is just a sub-entry on a parent matrikel owned under a different address. DAWA knows every address tied to a given (ejerlav, matrikelnr) pair, so we iterate those addresses and try each as a tinglysning search target until one resolves.
+The matrikel fallback (the `F -> G -> G1` branch) handles umbrella properties — hospitals, large farms, cooperative associations — where the user's exact address is just a sub-entry on a parent matrikel owned under a different address. DAR knows every address tied to a given jordstykke, so we iterate those addresses and try each as a tinglysning search target until one resolves.
 
 ### Map-click flow
 
 ```mermaid
 flowchart TD
     A["Map click (lat, lng)"]
-    A --> B["DAWA jordstykker/reverse<br/>&rarr; matrikelnr, ejerlavskode,<br/>bfenummer, geometry"]
+    A --> B["Matriklen MAT_Lodflade contains<br/>&rarr; matrikelnr, ejerlavskode,<br/>bfenummer, geometry"]
     B --> C["UI draws dashed parcel polygon<br/>immediately"]
     B --> D["/api/lookup-matrikel<br/>matrikelnr, ejerlavskode, lat, lng"]
 
-    D --> E["DAWA adgangsadresser<br/>by (ejerlav, matrikelnr)"]
+    D --> E["DAR husnumre<br/>on the jordstykke"]
     E --> F{any candidates?}
     F -- yes --> G["For each candidate:<br/>ejendomsoeg/soeg + hentejendomsbog"]
     G --> H{tingbog matrikler<br/>contains our parcel?}
@@ -237,7 +241,7 @@ Key properties:
 - **Matrikel-first**, not address-first. The click identifies a parcel; the address is just the lookup vehicle.
 - **SFE fallback** handles parcels without their own adgangsadresse (typical for fields, woodland, common lots) by walking sibling parcels sharing the same `sfeejendomsnr`.
 - **Andelsbolig enrichment** uses the click coordinates to pick the dwelling closest to the click - so clicking near apartment 13 in a cooperative resolves to apartment 13's individual share record, not the foundation entry.
-- **Ground area enrichment** augments each matrikel with `areal_m2` from DAWA `jordstykker` and exposes `grundareal_m2` when all matrikler on the property have known area.
+- **Ground area enrichment** augments each matrikel with `areal_m2` from Matriklen (`MAT_Jordstykke.registreretAreal`) and exposes `grundareal_m2` when all matrikler on the property have known area.
 - **Transient failures** in tinglysning.dk surface as 502/504 with a "Prøv igen" button, not a misleading "matrikel uden tingbog" card. The latter is reserved for parcels that are genuinely unreachable through the public REST surface (fx. BFE-isolerede skov-/markarealer uden adresse), which then offer an OIS deeplink as a last resort.
 
 ---
@@ -250,16 +254,16 @@ This means every "list search" endpoint becomes an addressable entry point to th
 
 ```mermaid
 flowchart LR
-    DAWA[DAWA adresser]
-    DAWA -->|postnr, vejnavn, husnr| ESOEG[ejendomsoeg/soeg]
-    DAWA -->|postnr, vejnavn, husnr| ASOEG[andelsoeg/soeg]
-    DAWA -->|ejerlav + matrikelnr| DAWA2[DAWA adgangsadresser<br/>by jordstykke]
-    DAWA2 -->|enumerate siblings| ESOEG
+    ADDR[gsearch + DAR]
+    ADDR -->|postnr, vejnavn, husnr| ESOEG[ejendomsoeg/soeg]
+    ADDR -->|postnr, vejnavn, husnr| ASOEG[andelsoeg/soeg]
+    ADDR -->|ejerlav + matrikelnr| ADDR2[DAR husnumre<br/>by jordstykke]
+    ADDR2 -->|enumerate siblings| ESOEG
 
     ESOEG -->|UUID| ETING[hentejendomsbog<br/>owners, valuation,<br/>mortgages, easements]
     ASOEG -->|UUID| ABOG[hentandelsboligbog<br/>member liens]
 
-    DAWA -->|adresse_uuid| BOLIG[Boligsiden<br/>sale history]
+    ADDR -->|adresse_uuid| BOLIG[Boligsiden<br/>sale history]
 
     ETING -->|haeftelse.rente + ISIN?| DST[DST DNRNURI rates]
     ETING -->|haeftelse.ISIN| ESMA[ESMA FIRDS]
@@ -311,7 +315,7 @@ Empirical findings driving the current lookup logic:
 
 - The association's main address is in **both** ejendomsoeg AND andelsoeg. They return different UUIDs because they're different legal entities: the property vs. the share headquarters.
 - Individual member addresses (sub-units) are **only** in andelsoeg. They resolve to the association's tingbog via matrikel fallback.
-- There is **no marker in DAWA** distinguishing a cooperative address from a standalone property. Every address must be asked both registers.
+- There is **no marker in DAR** distinguishing a cooperative address from a standalone property. Every address must be asked both registers.
 
 As a result, `lookup_address()` always queries andelsoeg in parallel with ejendomsoeg. The response shape reflects this dual nature:
 

@@ -33,7 +33,7 @@ Notes:
 Short name: `matrikel-click`
 
 Scope:
-- Map clicks resolve via the matrikel under the cursor (`/api/click` -> DAWA
+- Map clicks resolve via the matrikel under the cursor (`/api/click` -> Matriklen, formerly DAWA
   `jordstykker/reverse`) instead of the legacy 500m haversine reverse-geocoder.
   Eliminates the case where a click on parcel A returned an address on
   neighbouring parcel B.
@@ -67,7 +67,7 @@ Scope:
 - Add inline user feedback for geolocation states (locating, permission
   denied, timeout, no nearby address) and loading state on the GPS button.
 - Enrich tingbog responses with parcel area:
-  - `matrikler[].areal_m2` from DAWA `jordstykker`
+  - `matrikler[].areal_m2` from Matriklen (formerly DAWA `jordstykker`)
   - aggregate `grundareal_m2` only when all matrikler have known area (no
     partial totals presented as exact).
 - UI rendering:
@@ -120,3 +120,10 @@ Notes:
 - Requested while finalizing F1 mapstack.
 - Keep current F1 baseline at two options: `Standard kort` and
   `Topografisk kort`.
+
+## dawa-to-datafordeler (2026-10)
+
+DAWA shut down 2026-10-01 (`410 Gone`). Search box -> Dataforsyningen gsearch v2;
+addresses, matrikler, areas, polygons, map click and GPS -> Datafordeler GraphQL
+(DAR + MAT) via `dafo.py`. Browser API contract unchanged. Decisions and
+long-term TODOs: `docs/dawa-migration-plan.md` sections 9-10.

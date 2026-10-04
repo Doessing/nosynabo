@@ -489,7 +489,7 @@ function numberedIcon(n) {
 map.on('click', async e => {
   if (entries.length >= 10) return;
   const { lat, lng } = e.latlng;
-  // Map clicks are spatial, not textual: ask DAWA which jordstykke
+  // Map clicks are spatial, not textual: ask Matriklen which jordstykke
   // (cadastral parcel) the click falls inside, then drive the tinglysning
   // lookup off that matrikel. Avoids the 500 m haversine guess that could
   // otherwise resolve a click on parcel A to an address on neighbouring
@@ -960,7 +960,7 @@ function renderSidebar() {
       // /api/click (matrikelnr, ejerlav, bfenummer). Show that as a card so
       // the click isn't wasted — common case is unbebyggede marker without
       // an adgangsadresse, which tinglysning.dk's address-only API can't
-      // look up but DAWA still knows about.
+      // look up but Matriklen still knows about.
       if (entry.lookupMode === 'matrikel') {
         const oisLink = entry.bfenummer
           ? `<br><br><a href="https://www.ois.dk/search/${encodeURIComponent(entry.bfenummer)}/sfe" target="_blank" rel="noopener noreferrer">Slå op på OIS via BFE-nummeret &rarr;</a>`

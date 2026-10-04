@@ -2,14 +2,15 @@
 Address resolver — the single entry point for translating a freeform Danish
 address into the structured identifiers every downstream data source needs.
 
-One DAWA lookup yields every handle we need: postnr/vejnavn/husnr for
-Tinglysningen, adresse-UUID for Boligsiden, adgangsadresse-UUID for BBR and
-Datafordeler, coordinates for Plandata WFS, kommunekode for statistics, etc.
+One gsearch hit plus a short DAR/MAT join (see dafo.py) yields every handle
+we need: postnr/vejnavn/husnr for Tinglysningen, adresse-UUID for Boligsiden,
+adgangsadresse-UUID for BBR, matrikel/ejerlav for the matrikel fallback,
+coordinates for the map, kommunekode for statistics, etc.
 
 Callers pass a `ResolvedAddress` to data-source modules so no module has to
-repeat the DAWA round-trip. Results are cached in memory with a short TTL;
-address data itself is stable (DAWA publishes new addresses, it doesn't
-mutate existing ones), so the TTL mainly protects against traffic spikes.
+repeat the round-trip. Results are cached in memory with a short TTL;
+address data itself is stable (new addresses appear, existing ones rarely
+mutate), so the TTL mainly protects against traffic spikes.
 """
 
 from __future__ import annotations
@@ -18,11 +19,9 @@ import re
 from dataclasses import dataclass, asdict
 from typing import Any
 
-import requests
 from cachetools import TTLCache
 
-DAWA_AUTOCOMPLETE = "https://api.dataforsyningen.dk/autocomplete"
-DAWA_ADRESSER = "https://api.dataforsyningen.dk/adresser"
+import dafo
 
 # Matches a Danish house number: one or more digits, optional lowercase/uppercase
 # letter suffix (e.g. "12", "12A", "103a").
@@ -30,7 +29,7 @@ _HUSNR_RE = re.compile(r"\b(\d{1,3}[A-Za-z]?)\b")
 # Matches a 4-digit postal code (1000-9999).
 _POSTNR_RE = re.compile(r"\b([1-9]\d{3})\b")
 
-# One hour is generous — DAWA addresses don't change mid-session.
+# One hour is generous - addresses don't change mid-session.
 _RESOLVE_CACHE: TTLCache[str, "ResolvedAddress"] = TTLCache(maxsize=2048, ttl=3600)
 
 
@@ -44,8 +43,8 @@ class ResolvedAddress:
     husnr: str
     etage: str | None
     door: str | None
-    adresse_uuid: str          # DAWA "adresse" UUID — also used by Boligsiden
-    adgang_uuid: str           # DAWA "adgangsadresse" UUID — BBR, Datafordeler
+    adresse_uuid: str          # DAR adresse UUID - also used by Boligsiden
+    adgang_uuid: str           # DAR husnummer (adgangsadresse) UUID
     kommunekode: str
     matrikelnr: str            # e.g. "4hf" — used to find tingbog via matrikel
     ejerlavskode: str          # e.g. "1290159" — pairs with matrikelnr
@@ -61,19 +60,66 @@ class ResolveError(RuntimeError):
     """Raised when a query cannot be resolved to a concrete address."""
 
 
-def _best_hit(hits: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """Pick the 'most useful' hit from a DAWA adresser response.
+def _search(query: str) -> list[dict[str, Any]]:
+    """gsearch on the full query, then progressively shorter prefixes.
 
-    Prefer addresses without etage/dør (the ground-level / building entry) so
-    a query for a building hits its adgangsadresse-level data rather than an
-    arbitrary flat within it.
+    gsearch is strict about trailing tokens it cannot match (ASCII town
+    names like "hojbjerg", stray words), so drop words from the end until
+    something matches - but never below the house number.
     """
-    if not hits:
-        return None
-    for h in hits:
-        if not h.get("etage") and not h.get("dør"):
+    words = query.replace(",", " ").split()
+    husnr_idx = max((i for i, w in enumerate(words) if _HUSNR_RE.fullmatch(w)), default=0)
+    for n in range(len(words), husnr_idx, -1):
+        hits = dafo.gsearch("adresse", " ".join(words[:n]), limit=20)
+        if hits:
+            return hits
+    return []
+
+
+def _unit_tokens(query: str, husnr_digits: str, postnr: str | None) -> set[str]:
+    """Lower-cased query words that could be an etage/dør (husnr/postnr excluded)."""
+    words = {w.strip(".").lower() for w in query.replace(",", " ").split()}
+    words.discard(postnr or "")
+    return {w for w in words if w and not w.startswith(husnr_digits)}
+
+
+def _best_hit(hits: list[dict[str, Any]], husnr_digits: str,
+              postnr: str | None, query: str) -> dict[str, Any]:
+    """Pick the hit that agrees with what the user typed.
+
+    gsearch ranks well, but for "Vej 6" it may rank "Vej 60" or another town
+    first. Prefer hits matching the typed house number (and postnr, if given);
+    among those keep gsearch's order. Falls back to the top hit so the
+    caller's sanity check can produce a helpful error message.
+
+    Without an etage/dør in the query the user wants the property, not a
+    flat: prefer the hit without etage/dør. If every hit is a flat (pure
+    apartment building) return the top hit with etage/dør stripped; the
+    caller then resolves at husnummer (adgangsadresse) level.
+    """
+    def ok(h: dict[str, Any]) -> bool:
+        m = re.match(r"\d+", h.get("husnummer") or "")
+        return bool(m and m.group(0) == husnr_digits
+                    and (not postnr or h.get("postnummer") == postnr))
+
+    matching = [h for h in hits if ok(h)]
+    if not matching:
+        return hits[0]
+    typed = _unit_tokens(query, husnr_digits, postnr)
+
+    def unit_typed(h: dict[str, Any]) -> bool:
+        unit = [(h.get(k) or "").lower() for k in ("etagebetegnelse", "doerbetegnelse")]
+        unit = [u for u in unit if u]
+        return bool(unit) and all(u in typed for u in unit)
+
+    for h in matching:
+        if unit_typed(h):
             return h
-    return hits[0]
+    for h in matching:
+        if not h.get("etagebetegnelse") and not h.get("doerbetegnelse"):
+            return h
+    return {**matching[0], "etagebetegnelse": None, "doerbetegnelse": None,
+            "_husnummer_only": True}
 
 
 def resolve(query: str) -> ResolvedAddress:
@@ -82,7 +128,7 @@ def resolve(query: str) -> ResolvedAddress:
     Raises `ResolveError` if the query cannot be matched to a concrete
     address (e.g. too vague, typo, non-existent street). We also reject
     queries where the resolved result's postnr or husnr digits don't line
-    up with what the user typed — DAWA's fuzzy autocomplete happily
+    up with what the user typed - fuzzy search happily
     returns a plausible Danish address even for nonsense input, which
     would otherwise surface completely unrelated tingbog data.
     """
@@ -111,105 +157,19 @@ def resolve(query: str) -> ResolvedAddress:
             return replace(cached, query=query)
         return cached
 
-    # Step 1: autocomplete for fuzzy tolerance, to derive structured components.
-    r = requests.get(
-        DAWA_AUTOCOMPLETE,
-        params={
-            "q": query,
-            "caretpos": len(query),
-            "type": "adresse",
-            "per_side": 5,
-            "side": 1,
-            "fuzzy": "true",
-            "supplerendebynavn": "true",
-        },
-        timeout=10,
-    )
-    r.raise_for_status()
-    suggestions = r.json()
-
-    chosen_id: str | None = None
-    for s in suggestions:
-        data = s.get("data") or {}
-        # "adresse" type gives us the adresse-UUID directly in data['id']
-        if data.get("id"):
-            chosen_id = data["id"]
-            break
-        # Fall back to postnr/vejnavn/husnr fields if only adgangsadresse-level
-        if data.get("postnr") and data.get("vejnavn") and data.get("husnr"):
-            # Look up the full adresse record below.
-            break
-
-    if not chosen_id:
-        # Step 2: fall back to /adresser lookup on postnr/vejnavn/husnr.
-        if not suggestions:
-            raise ResolveError(
-                f"No DAWA match for {query!r} — try being more specific "
-                f"(include house number and postal code)."
-            )
-        d = suggestions[0].get("data") or {}
-        if not (d.get("postnr") and d.get("vejnavn") and d.get("husnr")):
-            raise ResolveError(
-                f"DAWA only returned partial matches for {query!r}. "
-                f"Try a more specific query."
-            )
-        r = requests.get(
-            DAWA_ADRESSER,
-            params={"postnr": d["postnr"], "vejnavn": d["vejnavn"], "husnr": d["husnr"]},
-            timeout=10,
+    hits = _search(query)
+    if not hits:
+        raise ResolveError(
+            f"Ingen adresse matcher '{query}' - skriv gade, husnummer og postnummer."
         )
-        r.raise_for_status()
-        hits = r.json()
-        hit = _best_hit(hits)
-        if not hit:
-            raise ResolveError(f"No address record for {query!r}")
-        chosen_id = hit["id"]
+    hit = _best_hit(hits, user_husnr_digits, user_postnr, query)
 
-    # Step 3: fetch the full adresse record for complete metadata.
-    # If the UUID from autocomplete points at a historically-deleted address
-    # (DAWA returns 404 for those), fall back to a fresh /adresser query on
-    # the structured components we already have.
-    r = requests.get(f"{DAWA_ADRESSER}/{chosen_id}", timeout=10)
-    if r.status_code == 404:
-        hint = {}
-        for s in suggestions:
-            d = s.get("data") or {}
-            if d.get("postnr") and d.get("vejnavn") and d.get("husnr"):
-                hint = d
-                break
-        if not hint:
-            raise ResolveError(
-                f"DAWA UUID {chosen_id} for {query!r} is not a current address "
-                f"and no structured fallback is available."
-            )
-        r = requests.get(
-            DAWA_ADRESSER,
-            params={"postnr": hint["postnr"], "vejnavn": hint["vejnavn"], "husnr": hint["husnr"]},
-            timeout=10,
-        )
-        r.raise_for_status()
-        hits = r.json()
-        hit = _best_hit(hits)
-        if not hit:
-            raise ResolveError(f"No current address record for {query!r}")
-        r = requests.get(f"{DAWA_ADRESSER}/{hit['id']}", timeout=10)
-    r.raise_for_status()
-    a = r.json()
-
-    # On a full adresse record, vejstykke/husnr/postnummer/kommune/adgangspunkt
-    # all live inside the embedded adgangsadresse object.
-    adgang = a.get("adgangsadresse") or {}
-    vejnavn = (adgang.get("vejstykke") or {}).get("navn", "")
-    husnr = adgang.get("husnr", "")
-    postnr = (adgang.get("postnummer") or {}).get("nr", "")
-    postnavn = (adgang.get("postnummer") or {}).get("navn", "")
-    etage = a.get("etage")
-    door = a.get("dør")
-    koord = (adgang.get("adgangspunkt") or {}).get("koordinater") or [0.0, 0.0]
-    ejerlav = adgang.get("ejerlav") or {}
-    matrikelnr = adgang.get("matrikelnr", "") or ""
-    ejerlavskode = str(ejerlav.get("kode", "") or "")
-    ejerlavsnavn = ejerlav.get("navn", "") or ""
+    vejnavn = hit.get("vejnavn") or ""
+    husnr = hit.get("husnummer") or ""
+    postnr = hit.get("postnummer") or ""
+    postnavn = hit.get("postnummernavn") or ""
+    etage = hit.get("etagebetegnelse") or None
+    door = hit.get("doerbetegnelse") or None
 
     label = f"{vejnavn} {husnr}"
     if etage:
@@ -218,21 +178,38 @@ def resolve(query: str) -> ResolvedAddress:
         label += f" {door}"
     label += f", {postnr} {postnavn}"
 
-    # Sanity-check: DAWA's fuzzy autocomplete is eager — "<script>" or
-    # "Kvakkelørevej 9999, 9999 Blabla" both resolve to *some* Danish
-    # address. Reject anything whose house number or postal code does not
-    # line up with what the user actually typed.
+    # Sanity-check: fuzzy search is eager - "Kvakkelørevej 9999, 9999 Blabla"
+    # still returns *some* Danish address. Reject anything whose house number
+    # or postal code does not line up with what the user actually typed.
     resolved_husnr_digits = re.match(r"\d+", husnr).group(0) if husnr else ""
     if resolved_husnr_digits != user_husnr_digits:
         raise ResolveError(
-            f"Ingen adresse matcher '{query}'. DAWA's bedste gæt var "
-            f"{label!r}, men husnummeret stemmer ikke — tjek for stavefejl."
+            f"Ingen adresse matcher '{query}'. Bedste gæt var "
+            f"{label!r}, men husnummeret stemmer ikke - tjek for stavefejl."
         )
     if user_postnr and postnr and user_postnr != postnr:
         raise ResolveError(
-            f"Ingen adresse matcher '{query}'. DAWA's bedste gæt var "
+            f"Ingen adresse matcher '{query}'. Bedste gæt var "
             f"{label!r}, men postnummeret stemmer ikke."
         )
+
+    # gsearch has no matrikel/husnummer handles; DAR + MAT supply them.
+    dar = dafo.resolve_adresse(hit["id"]) or {}
+    adresse_uuid = hit["id"]
+    if hit.get("_husnummer_only"):
+        # No flat chosen: identify the property by its adgangsadresse.
+        # Boligsiden only knows flats, so sales history will be empty.
+        adresse_uuid = dar.get("adgang_uuid") or adresse_uuid
+    matrikelnr = ejerlavskode = ejerlavsnavn = ""
+    if dar.get("jordstykke"):
+        j = dafo.jordstykke_by_id(dar["jordstykke"]) or {}
+        matrikelnr = j.get("matrikelnummer") or ""
+        ejerlavskode = str(j.get("ejerlavLokalId") or "")
+        if ejerlavskode:
+            ejerlavsnavn = dafo.ejerlavsnavn(ejerlavskode) or ""
+
+    coords = ((hit.get("geometri") or {}).get("coordinates") or [None])[0]
+    lat, lng = dafo.to_latlng(coords[0], coords[1]) if coords else (0.0, 0.0)
 
     resolved = ResolvedAddress(
         query=query,
@@ -242,14 +219,14 @@ def resolve(query: str) -> ResolvedAddress:
         husnr=husnr,
         etage=etage,
         door=door,
-        adresse_uuid=a["id"],
-        adgang_uuid=adgang.get("id", ""),
-        kommunekode=(adgang.get("kommune") or {}).get("kode", ""),
+        adresse_uuid=adresse_uuid,
+        adgang_uuid=dar.get("adgang_uuid", ""),
+        kommunekode=hit.get("kommunekode") or "",
         matrikelnr=matrikelnr,
         ejerlavskode=ejerlavskode,
         ejerlavsnavn=ejerlavsnavn,
-        lat=koord[1],
-        lng=koord[0],
+        lat=lat,
+        lng=lng,
     )
     _RESOLVE_CACHE[key] = resolved
     return resolved

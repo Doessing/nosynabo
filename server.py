@@ -22,10 +22,7 @@ import uvicorn
 from nosy_nabo import TinglysningClient, get_loan_type_info
 from boligsiden import get_sales_history
 from resolver import resolve as resolve_address, ResolveError
-
-DAWA_REVERSE_URL = "https://api.dataforsyningen.dk/adgangsadresser/reverse"
-DAWA_JORDSTYKKER_URL = "https://api.dataforsyningen.dk/jordstykker"
-DAWA_JORDSTYKKER_REVERSE_URL = "https://api.dataforsyningen.dk/jordstykker/reverse"
+import dafo
 
 log = logging.getLogger(__name__)
 
@@ -121,34 +118,21 @@ def _annotate_loan_types(tingbog: dict) -> dict:
         if key in _matrikel_area_cache:
             return _matrikel_area_cache[key]
 
-        params = {
-            "matrikelnr": matrikelnr,
-            "struktur": "flad",
-            "per_side": 1,
-        }
-        if ejerlavskode:
-            params["ejerlavkode"] = ejerlavskode
-        elif ejerlavsnavn:
-            params["ejerlavsnavn"] = ejerlavsnavn
-        else:
+        if not ejerlavskode and ejerlavsnavn:
+            try:
+                ejerlavskode = dafo.ejerlavskode_by_navn(ejerlavsnavn)
+            except requests.RequestException:
+                return None
+        if not ejerlavskode:
             _matrikel_area_cache[key] = None
             return None
 
         try:
-            resp = requests.get(DAWA_JORDSTYKKER_URL, params=params, timeout=(3, 8))
-            resp.raise_for_status()
-            arr = resp.json() or []
-        except (requests.RequestException, ValueError):
+            row = dafo.jordstykke(matrikelnr, ejerlavskode)
+        except requests.RequestException:
             return None
 
-        if not arr:
-            _matrikel_area_cache[key] = None
-            return None
-
-        row = arr[0]
-        raw_area = row.get("registreretareal")
-        if raw_area is None:
-            raw_area = row.get("arealberegnet")
+        raw_area = (row or {}).get("registreretAreal")
         if raw_area is None:
             _matrikel_area_cache[key] = None
             return None
@@ -212,7 +196,7 @@ def lookup_property(address: str) -> dict:
     """
     try:
         resolved = resolve_address(address)
-    except ResolveError as e:
+    except (ResolveError, requests.RequestException) as e:
         return {"error": str(e)}
     try:
         tingbog = _client.lookup_address(
@@ -240,7 +224,7 @@ def lookup_sales_history(address: str) -> dict:
     """
     try:
         resolved = resolve_address(address)
-    except ResolveError as e:
+    except (ResolveError, requests.RequestException) as e:
         return {"error": str(e)}
     try:
         return get_sales_history(resolved)
@@ -269,82 +253,40 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.get("/api/autocomplete")
 def autocomplete(q: str = Query(...), response: Response = None):
     try:
-        results = _client.autocomplete_address(q)
+        results = dafo.autocomplete(q)
     except requests.RequestException as e:
         log.warning("autocomplete upstream error: %s", e)
-        raise HTTPException(status_code=502, detail="DAWA unreachable")
+        raise HTTPException(status_code=502, detail="Adressesøgningen svarer ikke")
     # Address suggestions are public and stable; let CF and the browser cache
     # them briefly so repeated typing of the same prefix is instant.
     if response is not None:
         response.headers["Cache-Control"] = "public, max-age=300"
-    out = []
     for r in results:
-        d = r.get("data", {})
-        if d.get("postnr") and d.get("vejnavn") and d.get("husnr"):
-            lat = d["y"]
-            lng = d["x"]
-            out.append({
-                "type": "adresse",
-                "label": r["forslagstekst"],
-                "postnr": d["postnr"],
-                "vejnavn": d["vejnavn"],
-                "husnr": d["husnr"],
-                "lat": lat,
-                "lng": lng,
-                "epsg_25832": _to_epsg_25832(lat, lng),
-            })
-        elif r.get("type") == "vejnavn" and d.get("navn"):
-            # Street-name suggestion: user picks it and we refine to addresses.
-            out.append({
-                "type": "vejnavn",
-                "label": r["forslagstekst"],
-                "vejnavn": d["navn"],
-            })
-    return out
+        if r["type"] == "adresse":
+            r["epsg_25832"] = _to_epsg_25832(r["lat"], r["lng"])
+    return results
 
 
 @app.get("/api/reverse")
 def reverse(lat: float = Query(...), lng: float = Query(...)):
-    # DAWA reverse silently ignores maks_afstand and defaults to EPSG:25832 —
-    # pass srid=4326 explicitly and post-validate distance ourselves so ocean
-    # and cross-border clicks don't silently resolve to a distant address.
     try:
-        resp = requests.get(
-            DAWA_REVERSE_URL,
-            params={"x": lng, "y": lat, "srid": 4326, "maks_afstand": 500},
-            timeout=10,
-        )
+        c = dafo.nearest_address(lat, lng, max_m=500)
     except requests.RequestException as e:
         log.warning("reverse upstream error: %s", e)
-        raise HTTPException(status_code=502, detail="DAWA unreachable")
-    if resp.status_code == 404:
-        raise HTTPException(
-            status_code=404,
-            detail="Ingen adresse inden for 500 m af det valgte punkt.",
-        )
-    resp.raise_for_status()
-    d = resp.json()
-    a_lat = d["adgangspunkt"]["koordinater"][1]
-    a_lng = d["adgangspunkt"]["koordinater"][0]
-    # Haversine distance in metres
-    from math import radians, sin, cos, asin, sqrt
-    dlat = radians(a_lat - lat)
-    dlng = radians(a_lng - lng)
-    h = sin(dlat / 2) ** 2 + cos(radians(lat)) * cos(radians(a_lat)) * sin(dlng / 2) ** 2
-    dist_m = 2 * 6371000 * asin(sqrt(h))
-    if dist_m > 500:
+        raise HTTPException(status_code=502, detail="Adresseopslaget svarer ikke")
+    if c is None or c["x"] is None:
         raise HTTPException(
             status_code=404,
             detail="Ingen adresse inden for 500 m af det valgte punkt.",
         )
     return {
-        "label": d["adressebetegnelse"],
-        "postnr": d["postnummer"]["nr"],
-        "vejnavn": d["vejstykke"]["navn"],
-        "husnr": d["husnr"],
-        "lat": a_lat,
-        "lng": a_lng,
-        "epsg_25832": _to_epsg_25832(a_lat, a_lng),
+        "label": c["betegnelse"],
+        "postnr": c["postnr"],
+        "vejnavn": c["vejnavn"],
+        "husnr": c["husnr"],
+        "lat": c["y"],
+        "lng": c["x"],
+        "epsg_25832": _to_epsg_25832(c["y"], c["x"]),
     }
 
 
@@ -353,10 +295,10 @@ def click(lat: float = Query(...), lng: float = Query(...), response: Response =
     """Resolve a map click to the matrikel under the cursor.
 
     Map clicks are inherently spatial: the user pointed at a piece of land,
-    not at an address. Asking DAWA's adgangsadresser/reverse can resolve to
-    a neighbouring address that's geographically close but legally unrelated,
-    so we instead ask DAWA which jordstykke (cadastral parcel) the click
-    falls inside. The matrikel polygon either contains the click or it
+    not at an address. Reverse-geocoding to the nearest address can resolve
+    to a neighbouring address that's geographically close but legally
+    unrelated, so we instead ask Matriklen (MAT_Lodflade point-in-polygon)
+    which jordstykke (cadastral parcel) the click falls inside. The matrikel polygon either contains the click or it
     doesn't — no 500 m fudge factor required.
 
     Returns matrikelnr + ejerlavkode + ejerlavsnavn + bfenummer + geometry
@@ -364,72 +306,37 @@ def click(lat: float = Query(...), lng: float = Query(...), response: Response =
     tinglysning lookup runs.
     """
     try:
-        resp = requests.get(
-            DAWA_JORDSTYKKER_REVERSE_URL,
-            params={"x": lng, "y": lat, "srid": 4326, "format": "geojson"},
-            timeout=(3, 8),
-        )
+        jid = dafo.jordstykke_at(lat, lng)
+        j = dafo.jordstykke_by_id(jid) if jid else None
+        if j:
+            ejerlavkode = str(j.get("ejerlavLokalId") or "")
+            ejerlavsnavn = dafo.ejerlavsnavn(ejerlavkode) if ejerlavkode else None
+            geometry = dafo.jordstykke_geometry(jid)
     except requests.RequestException as e:
-        log.warning("click jordstykker/reverse upstream error: %s", e)
-        raise HTTPException(status_code=502, detail="DAWA unreachable")
-    if resp.status_code == 404:
+        log.warning("click upstream error: %s", e)
+        raise HTTPException(status_code=502, detail="Matrikelopslaget svarer ikke")
+    if not j or not j.get("matrikelnummer") or not ejerlavkode:
         raise HTTPException(
             status_code=404,
             detail="Klikket er uden for dansk territorium eller på et område uden matrikel.",
         )
-    try:
-        resp.raise_for_status()
-        feature = resp.json()
-    except (requests.RequestException, ValueError):
-        raise HTTPException(status_code=502, detail="DAWA returned invalid response")
+    sfe = j.get("samletFastEjendomLokalId")
 
-    props = feature.get("properties") or {}
-    matrikelnr = (props.get("matrikelnr") or "").strip()
-    ejerlavkode = props.get("ejerlavkode")
-    ejerlavsnavn = (props.get("ejerlavsnavn") or "").strip() or None
-    if not matrikelnr or ejerlavkode is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Matriklen kunne ikke identificeres på det valgte punkt.",
-        )
-
-    # jordstykker/reverse is known to sometimes omit ejerlavsnavn even when
-    # ejerlavkode is set. Do a tiny follow-up lookup to get the human-readable
-    # name — costs ~100 ms and only fires on the click-flow, not address search.
-    if not ejerlavsnavn:
-        try:
-            r2 = requests.get(
-                DAWA_JORDSTYKKER_URL,
-                params={
-                    "ejerlavkode": ejerlavkode,
-                    "matrikelnr": matrikelnr,
-                    "per_side": 1,
-                },
-                timeout=(3, 5),
-            )
-            if r2.ok:
-                arr = r2.json() or []
-                if arr:
-                    el = arr[0].get("ejerlav") or {}
-                    ejerlavsnavn = (el.get("navn") or "").strip() or None
-        except requests.RequestException as e:
-            log.info("click ejerlavsnavn refinement skipped: %s", e)
-            # non-fatal — we can still return matrikel + ejerlavkode
-
-    # Modest cache so re-clicks on the same parcel don't re-query DAWA.
+    # Modest cache so re-clicks on the same parcel don't re-query upstream.
     # Jordstykke polygons change rarely (cadastral updates are infrequent).
     if response is not None:
         response.headers["Cache-Control"] = "public, max-age=300"
 
     return {
-        "matrikelnr": matrikelnr,
-        "ejerlavkode": str(ejerlavkode),
+        "matrikelnr": j["matrikelnummer"],
+        "ejerlavkode": ejerlavkode,
         "ejerlavsnavn": ejerlavsnavn,
-        "bfenummer": props.get("bfenummer"),
-        "kommunekode": props.get("kommunekode"),
-        "esrejendomsnr": props.get("esrejendomsnr"),
-        "sfeejendomsnr": props.get("sfeejendomsnr"),
-        "geometry": feature.get("geometry"),
+        # BFE and SFE-nummer are the same value in Matriklen.
+        "bfenummer": int(sfe) if sfe and str(sfe).isdigit() else sfe,
+        "kommunekode": j.get("kommuneLokalId"),
+        "esrejendomsnr": None,
+        "sfeejendomsnr": sfe,
+        "geometry": geometry,
         "click_lat": lat,
         "click_lng": lng,
         "click_epsg_25832": _to_epsg_25832(lat, lng),
@@ -446,7 +353,7 @@ def lookup_matrikel(
     """Tingbog lookup driven by (matrikelnr, ejerlavskode) — the click path.
 
     Reuses TinglysningClient._find_tingbog_by_matrikel, which iterates the
-    DAWA adgangsadresser tied to the parcel and returns the first tingbog
+    DAR adgangsadresser tied to the parcel and returns the first tingbog
     whose `matrikler` actually contains our parcel. Far more reliable than
     guessing an address from the click coordinates.
 
@@ -528,6 +435,9 @@ def lookup(q: str = Query(...)):
         resolved = resolve_address(q)
     except ResolveError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except requests.RequestException as e:
+        log.warning("resolver upstream error for %r: %s", q, e)
+        raise HTTPException(status_code=502, detail="Adresseopslaget svarer ikke")
     try:
         tingbog = _client.lookup_address(
             resolved.postnr,
@@ -575,6 +485,9 @@ def sales_history(q: str = Query(...)):
         resolved = resolve_address(q)
     except ResolveError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except requests.RequestException as e:
+        log.warning("resolver upstream error for %r: %s", q, e)
+        raise HTTPException(status_code=502, detail="Adresseopslaget svarer ikke")
     try:
         return get_sales_history(resolved)
     except requests.RequestException as e:
@@ -588,7 +501,7 @@ def resolve_endpoint(q: str = Query(...)):
 
     Useful for debugging (why does source X not find my address?) and as a
     shared primitive for any client that wants to call multiple data-source
-    endpoints without re-paying the DAWA round-trip cost.
+    endpoints without re-paying the address round-trip cost.
     """
     try:
         return resolve_address(q).to_dict()
@@ -596,7 +509,7 @@ def resolve_endpoint(q: str = Query(...)):
         raise HTTPException(status_code=404, detail=str(e))
     except requests.RequestException as e:
         log.warning("resolver upstream error: %s", e)
-        raise HTTPException(status_code=502, detail="DAWA unreachable")
+        raise HTTPException(status_code=502, detail="Adresseopslaget svarer ikke")
 
 
 @app.get("/api/matrikel-geometry")
@@ -614,37 +527,28 @@ def matrikel_geometry(
             status_code=400,
             detail="Provide either ejerlavskode or ejerlavsnavn",
         )
-    params = {
-        "matrikelnr": matrikelnr,
-        "format": "geojson",
-        "srid": 4326,
-        "per_side": 1,
-    }
-    if ejerlavskode:
-        params["ejerlavkode"] = ejerlavskode
-    else:
-        params["ejerlavsnavn"] = ejerlavsnavn
     try:
-        resp = requests.get(
-            DAWA_JORDSTYKKER_URL,
-            params=params,
-            timeout=10,
-        )
+        if not ejerlavskode:
+            ejerlavskode = dafo.ejerlavskode_by_navn(ejerlavsnavn)
+        j = dafo.jordstykke(matrikelnr, ejerlavskode) if ejerlavskode else None
+        geometry = dafo.jordstykke_geometry(j["id_lokalId"]) if j else None
     except requests.RequestException as e:
         log.warning("matrikel-geometry upstream error: %s", e)
-        raise HTTPException(status_code=502, detail="DAWA unreachable")
-    try:
-        resp.raise_for_status()
-        payload = resp.json()
-    except (requests.RequestException, ValueError):
-        raise HTTPException(status_code=502, detail="DAWA returned invalid response")
-
-    features = payload.get("features") or []
-    if not features:
+        raise HTTPException(status_code=502, detail="Matrikelopslaget svarer ikke")
+    if not geometry:
         raise HTTPException(status_code=404, detail="Matrikel geometry not found")
     return {
         "type": "FeatureCollection",
-        "features": [features[0]],
+        "features": [{
+            "type": "Feature",
+            "properties": {
+                "matrikelnr": j["matrikelnummer"],
+                "ejerlavkode": j.get("ejerlavLokalId"),
+                "registreretareal": j.get("registreretAreal"),
+                "sfeejendomsnr": j.get("samletFastEjendomLokalId"),
+            },
+            "geometry": geometry,
+        }],
     }
 
 
