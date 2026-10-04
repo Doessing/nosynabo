@@ -3,3 +3,8 @@ __pycache__/
 .venv/
 tests/data/
 tests/parity_matrikel.py
+
+# Local secrets - never commit
+.env
+*.env
+secrets*
