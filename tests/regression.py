@@ -31,7 +31,7 @@ from nosy_nabo import TinglysningClient
 
 CASES = [
     # ------------------------------------------------------------------
-    # Andelsboliger — individuelle andele (ejd=0, altid andelsoeg)
+    # Andelsboliger - individuelle andele (ejd=0, altid andelsoeg)
     # ------------------------------------------------------------------
     (
         "andel-individuel / Jægertoften 6",
@@ -59,7 +59,7 @@ CASES = [
         {"has_andel": True},
     ),
     # ------------------------------------------------------------------
-    # Andelsboliger — hoved-ejendomme (ejd=1, ejer matcher andel-keyword)
+    # Andelsboliger - hoved-ejendomme (ejd=1, ejer matcher andel-keyword)
     # ------------------------------------------------------------------
     (
         "andel-hoved / Ryttervænget 101A",
@@ -82,7 +82,7 @@ CASES = [
         {"has_andel": True, "owner_contains": "andelsboligforeningen"},
     ),
     # Jægertoften 2 er hoved-ejendom for foreningen men har ingen andels-
-    # poster i andelsboligbogen — ejere-navn matcher keyword, andelsoeg
+    # poster i andelsboligbogen - ejere-navn matcher keyword, andelsoeg
     # kaldes, returnerer 0 hits → andelsbolig=None er korrekt.
     (
         "andel-hoved uden andelsboligbog-hit / Jægertoften 2",
@@ -90,7 +90,7 @@ CASES = [
         {"has_andel": False, "owner_contains": "andelsboligforeningen"},
     ),
     # ------------------------------------------------------------------
-    # Normale villaer — privatpersoner (skal IKKE kalde andelsoeg)
+    # Normale villaer - privatpersoner (skal IKKE kalde andelsoeg)
     # ------------------------------------------------------------------
     ("villa / Elmevej 14 Them",             "Elmevej 14, 8653 Them",                 {"has_andel": False}),
     ("villa / Akacievej 12 Odense N",        "Akacievej 12, 5270 Odense N",           {"has_andel": False}),
