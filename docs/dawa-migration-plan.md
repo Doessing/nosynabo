@@ -272,6 +272,6 @@ Ingen henvendelse til KDS om `@cost`-kvoter.
 - [ ] **API-oprydning:** `esrejendomsnr` er nu altid `null`, og `bfenummer`/`sfeejendomsnr` er samme værdi. Fjern/saml i en senere PR (ADR-3)
 - [ ] **Overvågning af tavse fejl:** konfigurationsfejl (fx manglende nøgle) og ændringer i gsearch/GraphQL-skema ligner bare upstream-udfald (502). Vi skal opdage det, når noget breaker - fx health-check eller alarm på 502-rate (ADR-9)
 - [ ] **Adressevælger:** revurder når brugerstyring er åben; skaf token via support@kds.dk (ADR-1)
-- [ ] **/readme er brudt i prod** (siden 2026-08-20): prod-CSP blokerer `marked` fra jsdelivr og `fetch` til raw.githubusercontent.com. Fix: self-host `marked` i `static/vendor/` og server repoets egen `README.md` fra appen - ingen CSP-ændring. Separat PR
+- [x] **/readme er brudt i prod** (rettet i fix/readme-csp) (siden 2026-08-20): prod-CSP blokerer `marked` fra jsdelivr og `fetch` til raw.githubusercontent.com. Fix: self-host `marked` i `static/vendor/` og server repoets egen `README.md` fra appen - ingen CSP-ændring. Separat PR
 - [ ] **Dev mangler CSP:** `nosy.dossing.net` sender ingen CSP-header, så CSP-fejl ses kun i prod. Overvej prods CSP kun i nosy-vhosten på webhost1 (delt server - se projektkontekst)
 - [ ] **DAWA-rester i CSP/preconnect:** prod `connect-src` og `<link rel="preconnect">` peger stadig på `api.dataforsyningen.dk`; satellitkortet går via `img-src`. Verificér og fjern

@@ -103,7 +103,11 @@ _index_html = f"<!-- version: {_VERSION} -->\n{_index_html}"
 
 with open("templates/readme.html") as f:
     _readme_html = f.read()
+_readme_html = _readme_html.replace("{{VERSION_SHORT}}", _VERSION_SHORT)
 _readme_html = _readme_html.replace("{{VERSION}}", _VERSION)
+
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "README.md"), encoding="utf-8") as f:
+    _readme_md = f.read()
 _readme_html = f"<!-- version: {_VERSION} -->\n{_readme_html}"
 
 
@@ -574,6 +578,16 @@ def index():
     # cacheable - but the HTML must be fresh to reference the new hashes.
     return HTMLResponse(
         content=html,
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
+
+
+@app.get("/readme.md", response_class=PlainTextResponse)
+def readme_md():
+    """The repo's own README, so /readme works under a same-origin CSP."""
+    return PlainTextResponse(
+        content=_readme_md,
+        media_type="text/markdown; charset=utf-8",
         headers={"Cache-Control": "no-cache, must-revalidate"},
     )
 
