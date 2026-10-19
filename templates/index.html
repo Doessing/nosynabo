@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://a.tile.openstreetmap.org" crossorigin>
   <link rel="preconnect" href="https://b.tile.openstreetmap.org" crossorigin>
   <link rel="preconnect" href="https://c.tile.openstreetmap.org" crossorigin>
-  <!-- Leaflet 1.9.4 — self-hosted from /static/leaflet/. See static/leaflet/VERSION. -->
+  <!-- Leaflet 1.9.4 - self-hosted from /static/leaflet/. See static/leaflet/VERSION. -->
   <link rel="stylesheet" href="/static/leaflet/leaflet.css?v={{VERSION}}"/>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
   <link rel="stylesheet" href="/static/style.css?v={{VERSION}}"/>
@@ -31,7 +31,7 @@
 </head>
 <body>
 
-<h1 class="visually-hidden">Nosy Nabo — dansk ejendomsopslag</h1>
+<h1 class="visually-hidden">Nosy Nabo - dansk ejendomsopslag</h1>
 
 <!-- Mobile sidebar controls. Hidden on >=768px by CSS. -->
 <button id="sidebar-toggle" class="sidebar-toggle" type="button"
@@ -70,7 +70,7 @@
 
 <div id="map"></div>
 
-<!-- Leaflet 1.9.4 — self-hosted from /static/leaflet/.
+<!-- Leaflet 1.9.4 - self-hosted from /static/leaflet/.
      To upgrade: bump the version in static/leaflet/VERSION and re-run the
      download steps documented there. -->
 <script src="/static/leaflet/leaflet.js?v={{VERSION}}"></script>
@@ -81,7 +81,7 @@ const map = L.map('map').setView([56.0, 10.5], 7);
 // Dataforsyningen WMS token, injected by the server from the
 // DATAFORSYNINGEN_TOKEN environment variable. Empty string means the
 // satellite basemap is unavailable in this deployment and the dropdown
-// option is hidden. Token is intentionally exposed to the browser —
+// option is hidden. Token is intentionally exposed to the browser -
 // that's how Dataforsyningen public tokens are designed to be used.
 const DATAFORSYNINGEN_TOKEN = '__DATAFORSYNINGEN_TOKEN__';
 const HAS_ORTOFOTO = DATAFORSYNINGEN_TOKEN.length > 0;
@@ -122,14 +122,14 @@ if (HAS_ORTOFOTO) {
       transparent: 'FALSE',
       token: DATAFORSYNINGEN_TOKEN,
       attribution: '© <a href="https://dataforsyningen.dk/data/981" target="_blank" rel="noopener">SDFI / GeoDanmark</a>',
-      // Don't load satellite tiles at country-overview zoom levels — each
+      // Don't load satellite tiles at country-overview zoom levels - each
       // WMS request is expensive (server-side reprojection) and loading
       // all of Denmark at zoom <12 would fire hundreds of requests and
       // hang the browser. Force a minimum zoom so the layer only activates
       // when the user is already looking at a reasonably small area.
       minZoom: 12,
       maxZoom: 21,
-      // Source data varies by area — 10 cm where available, 12.5 cm elsewhere.
+      // Source data varies by area - 10 cm where available, 12.5 cm elsewhere.
       // Let Leaflet upscale tiles past the WMS's native resolution rather than
       // fall back to a blank tile.
       maxNativeZoom: 20,
@@ -705,7 +705,7 @@ async function addAddress(label, lat, lng, epsg25832 = null) {
   fetch(`/api/sales-history?q=${encodeURIComponent(label)}`)
     .then(r => r.ok ? r.json() : null)
     .then(sh => { entry.salesHistory = sh; })
-    .catch(() => { /* ignore — optional enrichment */ })
+    .catch(() => { /* ignore - optional enrichment */ })
     .finally(() => {
       // Bug 14: entry may have been removed while fetch was in flight
       if (!entries.includes(entry)) return;
@@ -730,7 +730,7 @@ async function addMatrikel(hit) {
   // Reject duplicates by matrikel identity rather than label, because the
   // label is rewritten to the parent address once the tingbog comes back.
   // When a duplicate fires, scroll the existing entry into view rather than
-  // returning silently — otherwise the click looks like it did nothing.
+  // returning silently - otherwise the click looks like it did nothing.
   const dupIdx = entries.findIndex(e => e.lookupMode === 'matrikel'
         && e.matrikelnr === matrikelnr
         && e.ejerlavkode === ejerlavkode);
@@ -781,7 +781,7 @@ async function addMatrikel(hit) {
     fetch(`/api/sales-history?q=${encodeURIComponent(resolvedAddr)}`)
       .then(r => r.ok ? r.json() : null)
       .then(sh => { entry.salesHistory = sh; })
-      .catch(() => { /* ignore — optional enrichment */ })
+      .catch(() => { /* ignore - optional enrichment */ })
       .finally(() => {
         if (!entries.includes(entry)) return;
         entry.salesLoading = false;
@@ -792,7 +792,7 @@ async function addMatrikel(hit) {
 
 // Fetch /api/lookup for an entry, with one automatic retry on 5xx/network
 // errors. On slow upstream tinglysning.dk we want to be patient rather than
-// give up — the backend already caps each request at 45s and retries once
+// give up - the backend already caps each request at 45s and retries once
 // on timeout, so worst-case per attempt is ~1.5 min.
 async function loadEntry(entry) {
   entry.loading = true;
@@ -803,7 +803,7 @@ async function loadEntry(entry) {
   const shouldRetry = (res, err) => {
     if (err) return true;                    // network / abort
     if (!res) return true;
-    if (res.status === 429) return true;     // upstream rate-limit — retry after delay
+    if (res.status === 429) return true;     // upstream rate-limit - retry after delay
     if (res.status >= 500) return true;      // 502/504 from our backend
     return false;
   };
@@ -827,7 +827,7 @@ async function loadEntry(entry) {
         if (entry.lookupMode === 'matrikel') {
           // Promote the resolved address as the entry label. Always annotate
           // with '(via matrikel X)' so the user knows this came from a click
-          // rather than a typed address — the result may be a representative
+          // rather than a typed address - the result may be a representative
           // tingbog if the matrikel hosts more than one ejendom.
           const addr = entry.data?._matrikel_fallback?.parent_adresse || entry.data?.adresse;
           if (addr) {
@@ -869,7 +869,7 @@ async function loadEntry(entry) {
     entry.loading = false;
     renderSidebar();
     // Keep the clicked parcel on the map even when the tingbog lookup
-    // failed — matrikel-mode entries still carry useful identity info.
+    // failed - matrikel-mode entries still carry useful identity info.
     syncMatrikelOverlay();
     return;
   }
@@ -927,7 +927,7 @@ function renderSidebar() {
   el.innerHTML = '';
 
   if (entries.length >= 10) {
-    el.appendChild(html('<div class="limit-notice">Maks. 10 adresser nået — fjern en for at tilføje nye.</div>'));
+    el.appendChild(html('<div class="limit-notice">Maks. 10 adresser nået - fjern en for at tilføje nye.</div>'));
   }
 
   entries.forEach((entry, i) => {
@@ -955,14 +955,14 @@ function renderSidebar() {
 
     if (entry.loading) {
       if (entry.status === 'retrying') {
-        section.appendChild(html('<div class="spinner">Tinglysning.dk svarer langsomt — forsøger igen om et øjeblik…</div>'));
+        section.appendChild(html('<div class="spinner">Tinglysning.dk svarer langsomt - forsøger igen om et øjeblik…</div>'));
       } else {
         section.appendChild(html('<div class="spinner">Henter fra tinglysning.dk…</div>'));
       }
     } else if (entry.error) {
       // Matrikel-mode entries with an error still carry useful info from
       // /api/click (matrikelnr, ejerlav, bfenummer). Show that as a card so
-      // the click isn't wasted — common case is unbebyggede marker without
+      // the click isn't wasted - common case is unbebyggede marker without
       // an adgangsadresse, which tinglysning.dk's address-only API can't
       // look up but Matriklen still knows about.
       if (entry.lookupMode === 'matrikel') {
@@ -1071,7 +1071,7 @@ function renderEntryCards(container, d, salesHistory) {
             <tr>
               <td>${esc(m.matrikelnummer)}</td>
               <td>${esc(m.landsejerlavnavn)}</td>
-              ${hasMatrikelArea ? `<td class="num">${Number.isFinite(m.areal_m2) ? `${fmt(Math.round(m.areal_m2))} m²` : '—'}</td>` : ''}
+              ${hasMatrikelArea ? `<td class="num">${Number.isFinite(m.areal_m2) ? `${fmt(Math.round(m.areal_m2))} m²` : '-'}</td>` : ''}
             </tr>
           `).join('')}</tbody>
           ${showTotal ? `<tfoot><tr>
@@ -1112,7 +1112,7 @@ function renderEntryCards(container, d, salesHistory) {
       <tr><td>Friværdi (est.)</td><td class="${frivaerdi < 0 ? 'value-negative' : 'value-positive'}">${fmt(Math.round(frivaerdi))} kr.${frivaerdiPct !== null ? ` <span class="value-subtle">(${frivaerdiPct}%)</span>` : ''}</td></tr>
       <tr><td colspan="2" class="card-note">Est. af lyst pant - reel friværdi ofte højere.</td></tr>
     ` : `
-      <tr><td>Samlet pant</td><td class="text-muted text-italic">— Ingen gæld —</td></tr>
+      <tr><td>Samlet pant</td><td class="text-muted text-italic">- Ingen gæld -</td></tr>
       <tr><td>Friværdi</td><td class="value-positive">${fmt(v.ejendomsvaerdi)} kr. <span class="value-subtle">(100%)</span></td></tr>
     `;
     container.appendChild(html(`
@@ -1150,7 +1150,7 @@ function renderEntryCards(container, d, salesHistory) {
     const a = d.andelsbolig;
     const shareLiens = a.haeftelser || [];
     const header = hasEjendomsbog
-      ? 'Andelshaverens hæftelser <span class="card-note">(Andelsboligbogen — på andelen)</span>'
+      ? 'Andelshaverens hæftelser <span class="card-note">(Andelsboligbogen - på andelen)</span>'
       : 'Hæftelser <span class="card-note">(Andelsboligbogen)</span>';
     if (shareLiens.length) {
       const card = html(`<div class="card card-andel-liens"><div class="card-title">${header}</div></div>`);
@@ -1183,7 +1183,7 @@ function renderEntryCards(container, d, salesHistory) {
       return `${monthsDa[parseInt(m, 10) - 1] || m} ${y}`;
     };
     const rows = salesHistory.registrations.map(r => {
-      const pricePerM2 = r.perAreaPrice ? `${fmt(r.perAreaPrice)}` : '—';
+      const pricePerM2 = r.perAreaPrice ? `${fmt(r.perAreaPrice)}` : '-';
       return `<tr>
         <td>${shortDate(r.date)}</td>
         <td class="num">${fmt(r.amount)}</td>
@@ -1217,10 +1217,10 @@ function renderMortgage(h) {
       badgeHtml = `<span class="loan-type-badge badge-certain">${esc(lti.loan_type)} (ISIN)</span>`;
     } else if (lti.source === 'estimated') {
       if (lti.uncertain) {
-        badgeHtml = `<span class="loan-type-badge badge-uncertain">Usikker (lav rente — ældre lån?)</span>`;
+        badgeHtml = `<span class="loan-type-badge badge-uncertain">Usikker (lav rente - ældre lån?)</span>`;
       } else {
         const cls = lti.close_to?.length ? 'badge-close' : 'badge-certain';
-        const closeStr = lti.close_to?.length ? ` — tæt på ${esc(lti.close_to.join(', '))}` : '';
+        const closeStr = lti.close_to?.length ? ` - tæt på ${esc(lti.close_to.join(', '))}` : '';
         badgeHtml = `<span class="loan-type-badge ${cls}">${esc(lti.loan_type)}${closeStr}</span>`;
       }
 
@@ -1259,7 +1259,7 @@ function fmt(n) {
 }
 
 function formatArea(m2) {
-  if (!Number.isFinite(m2)) return '—';
+  if (!Number.isFinite(m2)) return '-';
   if (m2 < 10000) return `${fmt(Math.round(m2))} m²`;
   return `${(m2 / 10000).toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ha`;
 }
@@ -1387,7 +1387,7 @@ function renderHistory() {
 }
 </script>
 <!-- Debug instrumentation: loaded only when BOTH (a) the server has debug
-     enabled (see _debug_enabled() in server.py — config file, env, or
+     enabled (see _debug_enabled() in server.py - config file, env, or
      branch heuristic) AND (b) the URL carries ?debug=1. The server-side
      check here is substituted on every request, so toggling
      /etc/nosynabo/debug.conf is live without a restart. -->

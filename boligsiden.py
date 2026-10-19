@@ -1,7 +1,7 @@
 """
 Boligsiden client for fetching historical sale prices of a Danish address.
 
-Input is a `ResolvedAddress` (from resolver.py) — we reuse its `adresse_uuid`
+Input is a `ResolvedAddress` (from resolver.py) - we reuse its `adresse_uuid`
 which is the same UUID Boligsiden's public API uses.
 
 Notes:
@@ -36,7 +36,7 @@ REGISTRATION_TYPE_LABELS = {
     "other": "Andet",
 }
 
-# Keyed by adresse_uuid. 10 minutes is plenty — registrations are append-only
+# Keyed by adresse_uuid. 10 minutes is plenty - registrations are append-only
 # public records and this primarily absorbs rapid re-queries.
 _SALES_CACHE: TTLCache[str, dict[str, Any]] = TTLCache(maxsize=2048, ttl=600)
 
@@ -45,9 +45,9 @@ def _fetch_address_data(uuid: str) -> dict[str, Any]:
     """Fetch and cache the full Boligsiden /addresses/{uuid} response payload.
 
     Returns a dict with keys:
-      ``registrations``  — enriched sale registrations (newest first)
-      ``is_on_market``   — True if the property is currently listed for sale
-      ``boligsiden_url`` — direct link to the Boligsiden listing (or None)
+      ``registrations``  - enriched sale registrations (newest first)
+      ``is_on_market``   - True if the property is currently listed for sale
+      ``boligsiden_url`` - direct link to the Boligsiden listing (or None)
     """
     cached = _SALES_CACHE.get(uuid)
     if cached is not None:

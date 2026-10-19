@@ -1,5 +1,5 @@
 """
-Address resolver — the single entry point for translating a freeform Danish
+Address resolver - the single entry point for translating a freeform Danish
 address into the structured identifiers every downstream data source needs.
 
 One gsearch hit plus a short DAR/MAT join (see dafo.py) yields every handle
@@ -49,8 +49,8 @@ class ResolvedAddress:
     adresse_uuid: str
     adgang_uuid: str           # DAR husnummer (adgangsadresse) UUID
     kommunekode: str
-    matrikelnr: str            # e.g. "4hf" — used to find tingbog via matrikel
-    ejerlavskode: str          # e.g. "1290159" — pairs with matrikelnr
+    matrikelnr: str            # e.g. "4hf" - used to find tingbog via matrikel
+    ejerlavskode: str          # e.g. "1290159" - pairs with matrikelnr
     ejerlavsnavn: str
     lat: float
     lng: float
@@ -148,7 +148,7 @@ def resolve(query: str) -> ResolvedAddress:
     key = query.strip().lower()
     if not key:
         raise ResolveError(
-            "Tom søgning — skriv en adresse (gade, husnummer og postnummer)."
+            "Tom søgning - skriv en adresse (gade, husnummer og postnummer)."
         )
     # Require at least a house number; without it we can't distinguish
     # a specific property from the hundreds on a given street.
@@ -156,7 +156,7 @@ def resolve(query: str) -> ResolvedAddress:
     user_postnr_match = _POSTNR_RE.search(query)
     if not user_husnr_match:
         raise ResolveError(
-            "Manglende husnummer — skriv fx 'Borgergade 12, 6752 Glejbjerg'."
+            "Manglende husnummer - skriv fx 'Borgergade 12, 6752 Glejbjerg'."
         )
     user_husnr_digits = re.match(r"\d+", user_husnr_match.group(1)).group(0)
     user_postnr = user_postnr_match.group(1) if user_postnr_match else None

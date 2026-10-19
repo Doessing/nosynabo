@@ -61,7 +61,7 @@ def _to_epsg_25832(lat: float | None, lng: float | None) -> dict | None:
 def _git_version() -> str:
     """Return a short 'sha branch date' string for injection into the HTML.
 
-    Best-effort — returns 'unknown' if git is unavailable or the directory is
+    Best-effort - returns 'unknown' if git is unavailable or the directory is
     not a checkout (e.g. when running from a container or tarball).
     """
     try:
@@ -86,7 +86,7 @@ _VERSION = _git_version()
 # import time from the environment so the secret never lives in the repo.
 # When unset (e.g. local dev without the secret), the satellite basemap
 # option in the UI hides itself. Token is intentionally exposed to the
-# browser as part of the WMS URL — that's how Dataforsyningen public
+# browser as part of the WMS URL - that's how Dataforsyningen public
 # tokens are designed to be used.
 _DATAFORSYNINGEN_TOKEN = os.environ.get("DATAFORSYNINGEN_TOKEN", "").strip()
 
@@ -95,7 +95,7 @@ with open("templates/index.html") as f:
 
 # Inject a version marker at the top so `Ctrl+U` + search for "version" reveals
 # exactly which commit is serving the page. Purely for operator use.
-# Short hash only (first token) for use in URL query strings — the full
+# Short hash only (first token) for use in URL query strings - the full
 # _VERSION contains spaces (branch, timestamp) which are invalid in URLs.
 _VERSION_SHORT = _VERSION.split()[0] if _VERSION else "dev"
 _index_html = _index_html.replace("{{VERSION}}", _VERSION_SHORT)
@@ -301,7 +301,7 @@ def click(lat: float = Query(...), lng: float = Query(...), response: Response =
     to a neighbouring address that's geographically close but legally
     unrelated, so we instead ask Matriklen (MAT_Lodflade point-in-polygon)
     which jordstykke (cadastral parcel) the click falls inside. The matrikel polygon either contains the click or it
-    doesn't — no 500 m fudge factor required.
+    doesn't - no 500 m fudge factor required.
 
     Returns matrikelnr + ejerlavkode + ejerlavsnavn + bfenummer + geometry
     so the frontend can highlight the parcel immediately while the slower
@@ -352,7 +352,7 @@ def lookup_matrikel(
     lat: float | None = Query(None),
     lng: float | None = Query(None),
 ):
-    """Tingbog lookup driven by (matrikelnr, ejerlavskode) — the click path.
+    """Tingbog lookup driven by (matrikelnr, ejerlavskode) - the click path.
 
     Reuses TinglysningClient._find_tingbog_by_matrikel, which iterates the
     DAR adgangsadresser tied to the parcel and returns the first tingbog
@@ -380,25 +380,25 @@ def lookup_matrikel(
         log.warning("lookup-matrikel timeout for %s / %s", matrikelnr, ejerlavskode)
         raise HTTPException(
             status_code=504,
-            detail="Tinglysning.dk svarer ikke lige nu — prøv igen om lidt.",
+            detail="Tinglysning.dk svarer ikke lige nu - prøv igen om lidt.",
         )
     except requests.exceptions.HTTPError as e:
         if e.response is not None and e.response.status_code == 429:
             log.warning("lookup-matrikel rate-limited for %s / %s", matrikelnr, ejerlavskode)
             raise HTTPException(
                 status_code=429,
-                detail="Tinglysning.dk er midlertidigt overbelastet — prøv igen om et øjeblik.",
+                detail="Tinglysning.dk er midlertidigt overbelastet - prøv igen om et øjeblik.",
             )
         log.warning("lookup-matrikel upstream HTTP error: %s", e)
         raise HTTPException(
             status_code=502,
-            detail="Tinglysning.dk er ikke til at få fat i lige nu — prøv igen om lidt.",
+            detail="Tinglysning.dk er ikke til at få fat i lige nu - prøv igen om lidt.",
         )
     except requests.RequestException as e:
         log.warning("lookup-matrikel upstream error: %s", e)
         raise HTTPException(
             status_code=502,
-            detail="Tinglysning.dk er ikke til at få fat i lige nu — prøv igen om lidt.",
+            detail="Tinglysning.dk er ikke til at få fat i lige nu - prøv igen om lidt.",
         )
 
     if fallback is None:
@@ -406,7 +406,7 @@ def lookup_matrikel(
             status_code=404,
             detail=(
                 "Matriklen kunne ikke kobles til en tingbog. "
-                "Det er typisk arealer uden adgangsadresse — fx ubebyggede "
+                "Det er typisk arealer uden adgangsadresse - fx ubebyggede "
                 "marker, veje, vandarealer eller fælleslodder. Matriklen "
                 "har stadig en ejer, men tinglysning.dk's API kræver en "
                 "adresse for at slå tingbogen op."
@@ -418,7 +418,7 @@ def lookup_matrikel(
 
     # Don't set _matrikel_fallback from the click path. The address-lookup
     # path uses that flag to explain why the user got an umbrella tingbog
-    # instead of an address-specific one — but for a matrikel-click the user
+    # instead of an address-specific one - but for a matrikel-click the user
     # explicitly pointed at a parcel, so there's no expectation mismatch to
     # explain. Triggering the 'Fællesejendom / paraplyejendom' banner here
     # produced false positives on ordinary villas (e.g. Borgergade 90,
@@ -454,14 +454,14 @@ def lookup(q: str = Query(...)):
         log.warning("tinglysning timeout for %r", q)
         raise HTTPException(
             status_code=504,
-            detail="Tinglysning.dk svarer ikke lige nu — prøv igen om lidt.",
+            detail="Tinglysning.dk svarer ikke lige nu - prøv igen om lidt.",
         )
     except requests.exceptions.HTTPError as e:
         if e.response is not None and e.response.status_code == 429:
             log.warning("tinglysning rate-limited for %r", q)
             raise HTTPException(
                 status_code=429,
-                detail="Tinglysning.dk er midlertidigt overbelastet — prøv igen om et øjeblik.",
+                detail="Tinglysning.dk er midlertidigt overbelastet - prøv igen om et øjeblik.",
             )
         log.warning("tinglysning upstream HTTP error for %r: %s", q, e)
         raise HTTPException(status_code=502, detail="Tinglysning.dk unreachable")
@@ -571,7 +571,7 @@ def index():
     html = html.replace("__DATAFORSYNINGEN_TOKEN__", _DATAFORSYNINGEN_TOKEN)
     # no-cache forces browsers to revalidate the HTML on every load. The
     # static assets it references use ?v=<hash> cache-busting, so they stay
-    # cacheable — but the HTML must be fresh to reference the new hashes.
+    # cacheable - but the HTML must be fresh to reference the new hashes.
     return HTMLResponse(
         content=html,
         headers={"Cache-Control": "no-cache, must-revalidate"},
@@ -595,11 +595,11 @@ def readme():
 #
 # On/off switch (checked on every request, so no restart is needed when you
 # flip it). Precedence, highest wins:
-#   1. /etc/nosynabo/debug.conf  — a plain file. If it contains "enabled=1"
+#   1. /etc/nosynabo/debug.conf  - a plain file. If it contains "enabled=1"
 #      or just "1" or "on" / "true", debug is ON. "0"/"off"/"false" → OFF.
 #      File missing → fall through to next level.
-#   2. NOSY_DEBUG env var         — "1"/"on"/"true" forces ON. "0" forces OFF.
-#   3. Branch name heuristic      — ON when running on a feat/ / fix/ / debug/
+#   2. NOSY_DEBUG env var         - "1"/"on"/"true" forces ON. "0" forces OFF.
+#   3. Branch name heuristic      - ON when running on a feat/ / fix/ / debug/
 #      branch (so ad-hoc feature work gets instrumentation for free), OFF on
 #      main.
 # Rate-limited by file size: drops writes once log exceeds 10 MB.
@@ -617,7 +617,7 @@ def _debug_enabled() -> bool:
     truthy = {"1", "on", "true", "yes", "enabled"}
     falsy = {"0", "off", "false", "no", "disabled"}
 
-    # 1. Config file — highest priority so ops can force-toggle without deploy.
+    # 1. Config file - highest priority so ops can force-toggle without deploy.
     try:
         with open(_DEBUG_CONFIG_PATH) as f:
             raw = f.read().strip().lower()
@@ -645,7 +645,7 @@ def _debug_enabled() -> bool:
     if env in falsy:
         return False
 
-    # 3. Branch-name heuristic — feature branches default to ON, main to OFF.
+    # 3. Branch-name heuristic - feature branches default to ON, main to OFF.
     return any(seg in _VERSION for seg in ("feat/", "fix/", "debug/"))
 
 
@@ -697,7 +697,7 @@ async def _debug_ingest(request: Request):
     return Response(status_code=204)
 
 
-# Cheeky little globe with glasses — served inline so we don't have to add
+# Cheeky little globe with glasses - served inline so we don't have to add
 # a binary asset to the repo. SVG is fine for favicons in all modern browsers.
 _FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <circle cx="32" cy="32" r="28" fill="#4a90d9"/>
@@ -724,7 +724,7 @@ def favicon():
     return Response(content=_FAVICON_SVG, media_type="image/svg+xml")
 
 
-# Tell crawlers to stay out — the site is geo-blocked to DK and lives behind
+# Tell crawlers to stay out - the site is geo-blocked to DK and lives behind
 # a free-tier Cloudflare WAF; there's nothing useful for search engines here
 # and indexing only invites scraping attempts.
 _ROBOTS_TXT = "User-agent: *\nAllow: /\n\nSitemap: https://nosy.nosynabo.dk/sitemap.xml\n"

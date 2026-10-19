@@ -2,11 +2,11 @@
 
 ## What is nosynabo?
 
-**nosynabo** combines "nosy" (curious/inquisitive) and "nabo" (Danish for neighbor) — it's a tool for the curious neighbor who wants to look up public property information about any Danish address.
+**nosynabo** combines "nosy" (curious/inquisitive) and "nabo" (Danish for neighbor) - it's a tool for the curious neighbor who wants to look up public property information about any Danish address.
 
 The tool aggregates publicly available Danish property data from multiple open registers. It retrieves only **public data from public sources** and presents it in an easy-to-use interface.
 
-nosynabo composes information from official Danish registers — tinglysning.dk (property records), Dataforsyningen/Datafordeler (address and cadastre data), Boligsiden (sale history), and others — requiring no special authorization. All data accessed is by design publicly available to anyone; the tool simply assembles it conveniently in one place via a map-based web UI or command-line interface.
+nosynabo composes information from official Danish registers - tinglysning.dk (property records), Dataforsyningen/Datafordeler (address and cadastre data), Boligsiden (sale history), and others - requiring no special authorization. All data accessed is by design publicly available to anyone; the tool simply assembles it conveniently in one place via a map-based web UI or command-line interface.
 
 ---
 
@@ -17,12 +17,12 @@ Look up Danish property records from [tinglysning.dk](https://www.tinglysning.dk
 Given any freeform Danish address you get:
 
 - **Owners** (ejere) with ownership share
-- **Valuation** (vurdering) — property value, land value, municipality
-- **Estimated equity** (friværdi) — valuation minus total registered mortgage principals
-- **Mortgages and liens** (hæftelser) — including estimated loan type (F-kort / F1 / F3 / F5) for variable-rate realkreditlån
+- **Valuation** (vurdering) - property value, land value, municipality
+- **Estimated equity** (friværdi) - valuation minus total registered mortgage principals
+- **Mortgages and liens** (hæftelser) - including estimated loan type (F-kort / F1 / F3 / F5) for variable-rate realkreditlån
 - **Easements** (servitutter)
-- **Historical sale prices** (salgshistorik) — previous transactions with price, area and kr/m² via Boligsiden
-- **Active listing indicator** — if the property is currently for sale on Boligsiden, the address becomes a direct link to the listing and is marked with a "Til salg" badge
+- **Historical sale prices** (salgshistorik) - previous transactions with price, area and kr/m² via Boligsiden
+- **Active listing indicator** - if the property is currently for sale on Boligsiden, the address becomes a direct link to the listing and is marked with a "Til salg" badge
 
 Loan type estimation works by matching the registered coupon rate against [Nationalbanken rate statistics](https://www.dst.dk/da/Statistik/emner/penge-og-kapitalmarked/renter/realkreditrenter) (DST table DNRNURI). When an ISIN is known, the type is confirmed definitively via [ESMA FIRDS](https://registers.esma.europa.eu).
 
@@ -78,9 +78,9 @@ Caddy listens on port **18000** and proxies to the app. Set `DUCKDNS_DOMAIN` to 
 
 Open `http://localhost:8000` in a browser.
 
-- **Search** by typing an address in the sidebar — autocomplete is powered by Dataforsyningen [gsearch](https://dataforsyningen.dk/data/4987).
+- **Search** by typing an address in the sidebar - autocomplete is powered by Dataforsyningen [gsearch](https://dataforsyningen.dk/data/4987).
 - **Ejerlejligheder**: add floor/door (`Nygårdsvej 29, 1. 5, 6700 Esbjerg`) to get that flat's own tingbog. Typing past the house number (`Nygårdsvej 29, 1`) lists the flats. Without floor/door you get the main property (`Hovedejendom opdelt i ejerlejligheder`).
-- **Click the map** to look up the property at that location. Clicks are resolved by the **matrikel under the cursor** (cadastral parcel) rather than the nearest street address — so a click on parcel A always returns parcel A's tingbog, even if a neighbouring address happens to be physically closer to the click point.
+- **Click the map** to look up the property at that location. Clicks are resolved by the **matrikel under the cursor** (cadastral parcel) rather than the nearest street address - so a click on parcel A always returns parcel A's tingbog, even if a neighbouring address happens to be physically closer to the click point.
 - Up to **10 addresses** can be pinned simultaneously. Each gets a numbered marker; click a marker to scroll to its details in the sidebar.
 - Remove any address with the **×** button in its header.
 
@@ -165,12 +165,12 @@ ALTCHA is a CAPTCHA-style proof-of-work: the server hands out a challenge, the c
 
 There are two distinct flows depending on how the user identifies the property:
 
-- **Address flow** (`/api/lookup`) — typed address from the search box, resolved via gsearch + DAR, then tinglysning by `(postnr, vejnavn, husnr)`.
-- **Map-click flow** (`/api/click` → `/api/lookup-matrikel`) — pixel-precise click on the map, resolved by the matrikel under the cursor. Avoids the misalignment risk of the older haversine-based reverse geocoder, which could resolve a click on parcel A to an address on neighbouring parcel B.
+- **Address flow** (`/api/lookup`) - typed address from the search box, resolved via gsearch + DAR, then tinglysning by `(postnr, vejnavn, husnr)`.
+- **Map-click flow** (`/api/click` → `/api/lookup-matrikel`) - pixel-precise click on the map, resolved by the matrikel under the cursor. Avoids the misalignment risk of the older haversine-based reverse geocoder, which could resolve a click on parcel A to an address on neighbouring parcel B.
 
 ### Address flow
 
-A single call to `GET /api/lookup?q=…` kicks off this decision tree. The ejendomsoeg and andelsoeg paths can both succeed for the same address — the cooperative association's main address appears in both registers independently (see [Cooperative housing data model](#cooperative-housing-data-model)).
+A single call to `GET /api/lookup?q=…` kicks off this decision tree. The ejendomsoeg and andelsoeg paths can both succeed for the same address - the cooperative association's main address appears in both registers independently (see [Cooperative housing data model](#cooperative-housing-data-model)).
 
 ```mermaid
 flowchart TD
@@ -202,7 +202,7 @@ flowchart TD
     J --> L[Loan-type estimation<br/>per mortgage via DST/ESMA]
 ```
 
-The matrikel fallback (the `F -> G -> G1` branch) handles umbrella properties — hospitals, large farms, cooperative associations — where the user's exact address is just a sub-entry on a parent matrikel owned under a different address. DAR knows every address tied to a given jordstykke, so we iterate those addresses and try each as a tinglysning search target until one resolves.
+The matrikel fallback (the `F -> G -> G1` branch) handles umbrella properties - hospitals, large farms, cooperative associations - where the user's exact address is just a sub-entry on a parent matrikel owned under a different address. DAR knows every address tied to a given jordstykke, so we iterate those addresses and try each as a tinglysning search target until one resolves.
 
 ### Map-click flow
 
@@ -249,7 +249,7 @@ Key properties:
 
 ## Key insight: UUID reuse across endpoints
 
-Every entity in tinglysning.dk has a stable UUID. These UUIDs are **not per-endpoint** — the UUID you get from `ejendomsoeg/soeg` is the same UUID that identifies the record in `ejendomsoeg/hentejendomsbog`, and likewise for `andelsoeg/soeg` → `andelsoeg/hentandelsboligbog`.
+Every entity in tinglysning.dk has a stable UUID. These UUIDs are **not per-endpoint** - the UUID you get from `ejendomsoeg/soeg` is the same UUID that identifies the record in `ejendomsoeg/hentejendomsbog`, and likewise for `andelsoeg/soeg` → `andelsoeg/hentandelsboligbog`.
 
 This means every "list search" endpoint becomes an addressable entry point to the detailed record behind it, without needing a separate lookup step. It also means that if two addresses share the same UUID in one of these registers, they refer to the same legal entity (useful for detecting that e.g. an apartment in an ejerlejligheds-complex resolves to the same tingbog as its neighbours).
 
@@ -275,9 +275,9 @@ Concretely verified identity relationships:
 
 | Register | List endpoint | Detail endpoint | UUID shared? |
 |---|---|---|---|
-| Tingbog | `ejendomsoeg/soeg` | `ejendomsoeg/hentejendomsbog/<uuid>` | Yes — verified 2026-04 |
-| Andelsboligbog | `andelsoeg/soeg` | `andelsoeg/hentandelsboligbog/<uuid>` | Yes — verified 2026-04 |
-| Authenticated (MitID) | `rest/ejendomsoeg/*` | `rest/ejendomsoeg/*` | Same UUID as unsecrest counterpart — verified 2026-04 |
+| Tingbog | `ejendomsoeg/soeg` | `ejendomsoeg/hentejendomsbog/<uuid>` | Yes - verified 2026-04 |
+| Andelsboligbog | `andelsoeg/soeg` | `andelsoeg/hentandelsboligbog/<uuid>` | Yes - verified 2026-04 |
+| Authenticated (MitID) | `rest/ejendomsoeg/*` | `rest/ejendomsoeg/*` | Same UUID as unsecrest counterpart - verified 2026-04 |
 
 The last row has an important operational implication: if a user has an authenticated browser session with tinglysning.dk and fetches a UUID via the authenticated (`rest/…`) surface, the same UUID works against `unsecrest/…` without auth. The registers are the same; only the viewing surface changes.
 
@@ -287,8 +287,8 @@ The last row has an important operational implication: if a user has an authenti
 
 Danish cooperative housing (andelsbolig) splits ownership between two separate registers:
 
-1. The **association** owns the physical property — registered in **Tingbog** (`ejendomsoeg`).
-2. Each **member** owns a share in the association — registered in **Andelsboligbog** (`andelsoeg`).
+1. The **association** owns the physical property - registered in **Tingbog** (`ejendomsoeg`).
+2. Each **member** owns a share in the association - registered in **Andelsboligbog** (`andelsoeg`).
 
 Member loans against the share live in Andelsboligbog, not Tingbog. If nosynabo only queried ejendomsoeg, a cooperative member's individual mortgages would be invisible.
 
