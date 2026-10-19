@@ -4,7 +4,7 @@
 DAWA-data til at afgøre om en adresse *kan* være en andelsbolig?
 
 **Konklusion:** DAWA har ingen direkte andels-markør. Men mønstret i tinglysningens svar
-afslører én brugbar optimering — se nederst.
+afslører én brugbar optimering - se nederst.
 
 ---
 
@@ -15,16 +15,16 @@ Ejernavn fra tingbogen (`ejendomsoeg/hentejendomsbog`).
 
 | Adresse | Type | ejendomsoeg hits | andelsoeg hits | Ejernavn i tingbog |
 |---|---|---|---|---|
-| Jægertoften 6, 6780 Skærbæk | andel — individuel | 0 | 1 | — |
-| Ryttervænget 107A, 6752 Glejbjerg | andel — individuel | 0 | 1 | — |
-| Bellmansgade 7, 2100 København Ø | andel — hoved-ejendom (stor) | 1 | 8 | A/B Bellmansgade 7-37 |
-| Bellmansgade 13, 1. 1, 2100 København Ø | andel — individuel (stor forening) | 0 | 26 | — |
-| Vesterbrogade 60, 1620 København V | andel — hoved-ejendom | 1 | 4 | Andelsboligforeningen Danner |
-| Vesterbrogade 60, 2., 1620 København V | andel — individuel | 1 | 4 | Andelsboligforeningen Danner |
-| Vesterbrogade 50, 1620 København V | andel — hoved-ejendom | 1 | 7 | A/B Baker Street |
-| Vesterbrogade 50, 1. tv, 1620 København V | andel — individuel | 1 | 7 | A/B Baker Street |
-| Ryttervænget 101A, 6752 Glejbjerg | andel — hoved-ejendom | 1 | 1 | Andelsboligforeningen Ryttervænget, Glejbjerg |
-| Jægertoften 2, 6780 Skærbæk | andel — hoved-ejendom | 1 | 0 | Andelsboligforeningen Jægertoften |
+| Jægertoften 6, 6780 Skærbæk | andel - individuel | 0 | 1 | - |
+| Ryttervænget 107A, 6752 Glejbjerg | andel - individuel | 0 | 1 | - |
+| Bellmansgade 7, 2100 København Ø | andel - hoved-ejendom (stor) | 1 | 8 | A/B Bellmansgade 7-37 |
+| Bellmansgade 13, 1. 1, 2100 København Ø | andel - individuel (stor forening) | 0 | 26 | - |
+| Vesterbrogade 60, 1620 København V | andel - hoved-ejendom | 1 | 4 | Andelsboligforeningen Danner |
+| Vesterbrogade 60, 2., 1620 København V | andel - individuel | 1 | 4 | Andelsboligforeningen Danner |
+| Vesterbrogade 50, 1620 København V | andel - hoved-ejendom | 1 | 7 | A/B Baker Street |
+| Vesterbrogade 50, 1. tv, 1620 København V | andel - individuel | 1 | 7 | A/B Baker Street |
+| Ryttervænget 101A, 6752 Glejbjerg | andel - hoved-ejendom | 1 | 1 | Andelsboligforeningen Ryttervænget, Glejbjerg |
+| Jægertoften 2, 6780 Skærbæk | andel - hoved-ejendom | 1 | 0 | Andelsboligforeningen Jægertoften |
 | Elmevej 14, 8653 Them | normal villa | 1 | 0 | Kasper Lerche Rode (privatperson) |
 | Akacievej 12, 5270 Odense N | normal villa | 1 | 0 | Line Arndal (privatperson) |
 | Birkevej 4, 8800 Viborg | normal villa | 1 | 0 | Line Rud Pedersen (privatperson) |
@@ -34,7 +34,7 @@ Ejernavn fra tingbogen (`ejendomsoeg/hentejendomsbog`).
 | Lærkevej 7, 4700 Næstved | normal villa | 1 | 0 | Ina Kjølby Korneliussen (privatperson) |
 | Egegårdsvej 12, 2800 Kongens Lyngby | normal villa | 1 | 0 | Person med navne- og adressebeskyttelse |
 | Strandvejen 100, 2900 Hellerup | villa/ejerlejlighed | 1 | 0 | Miluda Invest ApS (selskab) |
-| Amagerbrogade 70, 2300 København S | ejerlejlighed | 0 | 0 | — |
+| Amagerbrogade 70, 2300 København S | ejerlejlighed | 0 | 0 | - |
 | Sonnesgade 15, st. tv, 8000 Aarhus C | ejerlejlighed-komplex | 11 | 0 | Opdelt i ejerlejligheder 1-30 |
 | Kongens Nytorv 1, 1050 København K | erhverv / offentlig | 1 | 0 | Børne- og Undervisningsministeriet |
 | Rådhuspladsen 1, 1550 København V | erhverv / offentlig | 1 | 0 | KØBENHAVNS KOMMUNE |
@@ -56,7 +56,7 @@ Ingen DAWA-felter kan bruges som pre-filter:
 | `dør` | `null` | `null` | `null`/sat | Samme |
 | `ejerlejlighedsnummer` | `null` | `null` | `null` | Ikke tilgængeligt i DAWA adresser |
 | `esrejendomsnr` (jordstykke) | `"0"` | `"0"` | `"0"` | Identisk for alle typer |
-| Antal adresser på matrikel | 8 | 1 | 1-4 | For upålideligt — ejerlejlighedskomplekser deler også matrikel |
+| Antal adresser på matrikel | 8 | 1 | 1-4 | For upålideligt - ejerlejlighedskomplekser deler også matrikel |
 
 **Konklusion:** DAWA har ingen andels-markør. Vi kan ikke pre-filtrere baseret på DAWA alene.
 
@@ -66,8 +66,8 @@ Ingen DAWA-felter kan bruges som pre-filter:
 
 | Kombination | Hvad det betyder | Skal andelsoeg spørges? |
 |---|---|---|
-| `ejd=0, andel=?` | Ikke i ejendomsbogen — kan være andel, matrikel-fallback, eller ukendt | Ja (allerede sker) |
-| `ejd=1, ejer = privatperson` | Normal villa eller ejerlejlighed ejet af privatperson | **Nej — kan skippes** |
+| `ejd=0, andel=?` | Ikke i ejendomsbogen - kan være andel, matrikel-fallback, eller ukendt | Ja (allerede sker) |
+| `ejd=1, ejer = privatperson` | Normal villa eller ejerlejlighed ejet af privatperson | **Nej - kan skippes** |
 | `ejd=1, ejer = "A/B …"` | Andelsboligforenings hoved-ejendom eller administreret ejendom | Ja |
 | `ejd=1, ejer = "Andelsboligforeningen …"` | Andelsboligforenings hoved-ejendom | Ja |
 | `ejd=1, ejer = "Opdelt i ejerlejligheder …"` | Ejerlejlighedskomplex | Nej |
@@ -103,22 +103,22 @@ def _skal_spørge_andel(ejd_hits: list, ejernavn: str) -> bool:
     return any(kw in ejernavn.lower() for kw in _ANDEL_KEYWORDS)
 ```
 
-### Positive testcases (andel=ja — skal IKKE skippes)
+### Positive testcases (andel=ja - skal IKKE skippes)
 
 | Adresse | ejd | Ejernavn | Beslutning | Faktisk andel | OK? |
 |---|---|---|---|---|---|
-| Jægertoften 6, 6780 Skærbæk | 0 | — | spørg | ✅ ja | ✓ |
+| Jægertoften 6, 6780 Skærbæk | 0 | - | spørg | ✅ ja | ✓ |
 | Jægertoften 2, 6780 Skærbæk | 1 | Andelsboligforeningen Jægertoften | spørg | ✅ ja | ✓ |
-| Ryttervænget 107A, 6752 Glejbjerg | 0 | — | spørg | ✅ ja | ✓ |
+| Ryttervænget 107A, 6752 Glejbjerg | 0 | - | spørg | ✅ ja | ✓ |
 | Ryttervænget 101A, 6752 Glejbjerg | 1 | Andelsboligforeningen Ryttervænget | spørg | ✅ ja | ✓ |
 | Bellmansgade 7, 2100 København Ø | 1 | A/B Bellmansgade 7-37 | spørg | ✅ ja | ✓ |
-| Bellmansgade 13, 1. 1, 2100 København Ø | 0 | — | spørg | ✅ ja | ✓ |
+| Bellmansgade 13, 1. 1, 2100 København Ø | 0 | - | spørg | ✅ ja | ✓ |
 | Vesterbrogade 60, 1620 København V | 1 | Andelsboligforeningen Danner | spørg | ✅ ja | ✓ |
 | Vesterbrogade 60, 2., 1620 København V | 1 | Andelsboligforeningen Danner | spørg | ✅ ja | ✓ |
 | Vesterbrogade 50, 1620 København V | 1 | A/B Baker Street | spørg | ✅ ja | ✓ |
 | Vesterbrogade 50, 1. tv, 1620 København V | 1 | A/B Baker Street | spørg | ✅ ja | ✓ |
 
-### Negative testcases (andel=nej — skal SKIPPES)
+### Negative testcases (andel=nej - skal SKIPPES)
 
 | Adresse | ejd | Ejernavn | Beslutning | Faktisk andel | OK? |
 |---|---|---|---|---|---|
@@ -131,7 +131,7 @@ def _skal_spørge_andel(ejd_hits: list, ejernavn: str) -> bool:
 | Lærkevej 7, 4700 Næstved | 1 | Ina Kjølby Korneliussen | skip | ❌ nej | ✓ |
 | Egegårdsvej 12, 2800 Kongens Lyngby | 1 | (navnebeskyttelse) | skip | ❌ nej | ✓ |
 | Strandvejen 100, 2900 Hellerup | 1 | Miluda Invest ApS | skip | ❌ nej | ✓ |
-| Amagerbrogade 70, 2300 København S | 0 | — | spørg | ❌ nej | ✓ (false positive ok — ejd=0 fail-safe) |
+| Amagerbrogade 70, 2300 København S | 0 | - | spørg | ❌ nej | ✓ (false positive ok - ejd=0 fail-safe) |
 | Sonnesgade 15, st. tv, 8000 Aarhus C | 11 | Opdelt i ejerlejligheder | skip | ❌ nej | ✓ |
 | Kongens Nytorv 1, 1050 København K | 1 | Børne- og Undervisningsministeriet | skip | ❌ nej | ✓ |
 | Rådhuspladsen 1, 1550 København V | 1 | KØBENHAVNS KOMMUNE | skip | ❌ nej | ✓ |
@@ -143,7 +143,7 @@ def _skal_spørge_andel(ejd_hits: list, ejernavn: str) -> bool:
 
 ### Hvad med hoved-ejendommen?
 
-Bekymringen var om hoved-ejendommen (101A — foreningen ejer matriklen) ville blive misset.
+Bekymringen var om hoved-ejendommen (101A - foreningen ejer matriklen) ville blive misset.
 Den bliver **ikke** misset, fordi ejernavn = "Andelsboligforeningen Ryttervænget" → matcher
 andel-keyword → andelsoeg spørges. ✓
 
@@ -165,11 +165,11 @@ For at optimere skal rækkefølgen vendes:
 ```
 
 Det medfører at andelsoeg-kaldet for individuelle andelsboliger (ejd=0) sker **efter**
-ejendomsoeg-kaldet — i praksis ingen forskel da ejendomsoeg er hurtig ved 0 hits.
+ejendomsoeg-kaldet - i praksis ingen forskel da ejendomsoeg er hurtig ved 0 hits.
 
 ### Risiko
 
-Eneste risiko er en andelsforening med et navn der ikke indeholder nogen af keywords —
+Eneste risiko er en andelsforening med et navn der ikke indeholder nogen af keywords -
 f.eks. en forening der hedder "BRF Kredit Ejendomme A/S" eller lignende. Vurderet som
 meget lav risiko i praksis: andelsboligforeninger i Danmark har næsten altid
 "andel", "A/B" eller "forening" i navnet ifølge lovgivningen.

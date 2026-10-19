@@ -390,7 +390,7 @@ class TinglysningClient:
             except requests.exceptions.ConnectionError:
                 # Connection reset / stale keep-alive. The server may also
                 # have invalidated our ALTCHA session along with the socket,
-                # so drop the cached token before retrying — otherwise the
+                # so drop the cached token before retrying - otherwise the
                 # second attempt reuses a dead token and we end up raising
                 # to the caller, which previously surfaced as a flaky 502
                 # on the first click that disappeared on a fresh session.
@@ -399,7 +399,7 @@ class TinglysningClient:
                     raise
                 continue
             except requests.exceptions.Timeout:
-                # Read/connect timeout — retry once with a fresh connection
+                # Read/connect timeout - retry once with a fresh connection
                 if attempt == 1:
                     raise
                 continue
@@ -411,7 +411,7 @@ class TinglysningClient:
                     return resp.json()
                 except ValueError:
                     pass
-            # Empty or non-JSON body — token is stale, discard and retry once
+            # Empty or non-JSON body - token is stale, discard and retry once
             self._token = None
         # Both attempts exhausted without a JSON payload.
         raise RuntimeError(
@@ -466,7 +466,7 @@ class TinglysningClient:
             "husnummer": husnummer,
         })
         if data.get("statuskode") not in (0, 1):
-            # 0 = ok, 1 = "no results" — any other code is a real error
+            # 0 = ok, 1 = "no results" - any other code is a real error
             raise RuntimeError(f"Andelsoeg failed: {data.get('statustekst')}")
         return data.get("items") or []
 
@@ -474,7 +474,7 @@ class TinglysningClient:
         """Fetch andelsboligbog data (liens on the cooperative share) for a UUID.
 
         Returns the share-holder's individual mortgages and related info.
-        Unlike tingbog, andelsboligbog has no ejere/servitutter/vurdering —
+        Unlike tingbog, andelsboligbog has no ejere/servitutter/vurdering -
         the cooperative as an entity holds the property, not the member.
         """
         hit = _andelsbolig_cache.get(uuid)
@@ -510,8 +510,8 @@ class TinglysningClient:
         andelsoeg. There's no marker in DAR to distinguish these cases up
         front, so we use a two-step strategy:
 
-          1. ejendomsoeg first — cheap and fast.
-          2. andelsoeg conditionally — only when the ejendomsoeg result
+          1. ejendomsoeg first - cheap and fast.
+          2. andelsoeg conditionally - only when the ejendomsoeg result
              indicates a cooperative (ejd=0, ejd>1, or owner name matches
              an andel keyword). Skipped for obvious non-cooperatives
              (private owners, public bodies, companies).
@@ -543,7 +543,7 @@ class TinglysningClient:
             tingbog["andelsbolig"] = andelsbolig
             return tingbog
 
-        # No exact match — try to find the owning tingbog via matrikel.
+        # No exact match - try to find the owning tingbog via matrikel.
         # This covers cooperative members, hospitals, large farms, and any
         # other umbrella property where individual addresses don't have
         # their own tingbog but the matrikel does.
@@ -593,7 +593,7 @@ class TinglysningClient:
         """Return True if andelsoeg should be queried for this address.
 
         Decision rules (validated against 28 test cases, 0 false negatives):
-          ejd=0  → always ask (individual cooperative member — no owner to check)
+          ejd=0  → always ask (individual cooperative member - no owner to check)
           ejd>1  → never ask  (split property / ejerlejlighed complex)
           ejd=1, owner name matches andel keyword → ask
           ejd=1, owner is private person / company / public body → skip
@@ -613,7 +613,7 @@ class TinglysningClient:
         vejnavn: str,
         husnummer: str,
     ) -> dict | None:
-        """Best-effort lookup in Andelsboligbogen — never raises.
+        """Best-effort lookup in Andelsboligbogen - never raises.
 
         The andelsoeg call is additive enrichment; if it times out, fails
         with an HTTP error, or hits a transient upstream hiccup, we just
@@ -642,7 +642,7 @@ class TinglysningClient:
         Only fires when:
           1. Click coordinates were provided (matrikel-click flow, not the
              address-flow internal fallback).
-          2. The tingbog's owner name matches an andel-keyword — i.e. this
+          2. The tingbog's owner name matches an andel-keyword - i.e. this
              matrikel is a cooperative-housing umbrella, so the per-flat
              andelsboligbog is worth checking.
           3. We can pick a nearest adgangsadresse on the matrikel from the
@@ -655,7 +655,7 @@ class TinglysningClient:
         tingbog as `andelsbolig` so the existing UI card renders it.
 
         If anything fails (no coords, no matching owner, no candidates,
-        andelsoeg miss), `andelsbolig` stays absent — caller decides the
+        andelsoeg miss), `andelsbolig` stays absent - caller decides the
         default. Never raises.
         """
         if tingbog.get("andelsbolig"):
@@ -736,12 +736,12 @@ class TinglysningClient:
                 items = self.search_property(postnr, vejnavn, husnr)
             except (RuntimeError, requests.exceptions.RequestException):
                 # Treat upstream flakiness (connection reset, timeout, 5xx)
-                # the same as a "no result" miss — try the next candidate
+                # the same as a "no result" miss - try the next candidate
                 # rather than aborting the whole matrikel resolution. The
                 # original code only caught RuntimeError, which meant a
                 # single ConnectionResetError on the first candidate killed
                 # the entire lookup and surfaced as a spurious 404 to the
-                # user (observed on 21a Gauerslund — second click 6 min
+                # user (observed on 21a Gauerslund - second click 6 min
                 # later returned 200 OK with the same matrikel).
                 upstream_errors += 1
                 continue
@@ -761,7 +761,7 @@ class TinglysningClient:
                     return tingbog, c.get("betegnelse", "")
 
         # If every candidate we tried errored out upstream, this is a
-        # transient network/tinglysning failure — not a "matrikel has no
+        # transient network/tinglysning failure - not a "matrikel has no
         # tingbog" situation. Surface it as an exception so server.py
         # returns 502/504 instead of a misleading 404 that suggests the
         # parcel is genuinely unregistered.
@@ -776,7 +776,7 @@ class TinglysningClient:
         # bebygget naboparcel) cannot be resolved by the loop above. Ask
         # Matriklen for the matrikel's SFE-nummer, then iterate
         # adgangsadresser on every sibling jordstykke sharing that SFE. Example: 4e Lintrup By (mark, 0 adresser) shares SFE 5035243
-        # with 9u Klelund By (Grindstedvej 21) — same tingbog, BFE 5035243.
+        # with 9u Klelund By (Grindstedvej 21) - same tingbog, BFE 5035243.
         sfe = (jord or {}).get("samletFastEjendomLokalId")
         if not sfe:
             return None
@@ -813,7 +813,7 @@ class TinglysningClient:
                     if (mat.get("matrikelnummer") == matrikelnr
                             and str(mat.get("landsejerlavkode")) == ejerlavskode):
                         # Use the *clicked* matrikel's own adresser (not the
-                        # sibling's) for andelsbolig reverse-geocoding — the
+                        # sibling's) for andelsbolig reverse-geocoding - the
                         # user clicked on our parcel, not the sibling's.
                         self._enrich_with_click_andelsbolig(
                             tingbog, candidates, click_lat, click_lng,
