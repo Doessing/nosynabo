@@ -79,6 +79,7 @@ Caddy listens on port **18000** and proxies to the app. Set `DUCKDNS_DOMAIN` to 
 Open `http://localhost:8000` in a browser.
 
 - **Search** by typing an address in the sidebar — autocomplete is powered by Dataforsyningen [gsearch](https://dataforsyningen.dk/data/4987).
+- **Ejerlejligheder**: add floor/door (`Nygårdsvej 29, 1. 5, 6700 Esbjerg`) to get that flat's own tingbog. Typing past the house number (`Nygårdsvej 29, 1`) lists the flats. Without floor/door you get the main property (`Hovedejendom opdelt i ejerlejligheder`).
 - **Click the map** to look up the property at that location. Clicks are resolved by the **matrikel under the cursor** (cadastral parcel) rather than the nearest street address — so a click on parcel A always returns parcel A's tingbog, even if a neighbouring address happens to be physically closer to the click point.
 - Up to **10 addresses** can be pinned simultaneously. Each gets a numbered marker; click a marker to scroll to its details in the sidebar.
 - Remove any address with the **×** button in its header.

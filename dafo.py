@@ -240,6 +240,24 @@ def autocomplete(q: str) -> list[dict]:
             "lat": ll[0],
             "lng": ll[1],
         })
+    if out:
+        return out
+    # No husnummer match: the user is probably typing an etage/dør
+    # ("Vej 29, 1. 5"), which only the adresse resource knows. Offer the
+    # flats so ejerlejligheder can be picked.
+    for h in gsearch("adresse", q, limit=20):
+        ll = _gs_latlng(h)
+        if not (ll and h.get("postnummer") and h.get("vejnavn") and h.get("husnummer")):
+            continue
+        out.append({
+            "type": "adresse",
+            "label": h["visningstekst"],
+            "postnr": h["postnummer"],
+            "vejnavn": h["vejnavn"],
+            "husnr": h["husnummer"],
+            "lat": ll[0],
+            "lng": ll[1],
+        })
     return out
 
 
