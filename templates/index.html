@@ -804,6 +804,7 @@ async function loadEntry(entry) {
     if (err) return true;                    // network / abort
     if (!res) return true;
     if (res.status === 429) return true;     // upstream rate-limit - retry after delay
+    if (res.status === 503) return false;    // tinglysning.dk outage - retry won't help
     if (res.status >= 500) return true;      // 502/504 from our backend
     return false;
   };
