@@ -340,6 +340,15 @@ def _pick_item(items: list[dict], etage: str | None, door: str | None) -> dict:
     return items[0]
 
 
+def _reraise_if_outage(e: Exception) -> None:
+    """tinglysning.dk returns 503 for every request during an outage, so
+    trying the next candidate is pointless and would mask the outage as a
+    misleading 'no tingbog' 404."""
+    if (isinstance(e, requests.exceptions.HTTPError)
+            and e.response is not None and e.response.status_code == 503):
+        raise e
+
+
 class TinglysningClient:
     # Upstream tinglysning.dk has been observed to hang for minutes on
     # individual requests. Cap every call so one slow property doesn't tie
@@ -734,7 +743,8 @@ class TinglysningClient:
             candidates_tried += 1
             try:
                 items = self.search_property(postnr, vejnavn, husnr)
-            except (RuntimeError, requests.exceptions.RequestException):
+            except (RuntimeError, requests.exceptions.RequestException) as e:
+                _reraise_if_outage(e)
                 # Treat upstream flakiness (connection reset, timeout, 5xx)
                 # the same as a "no result" miss - try the next candidate
                 # rather than aborting the whole matrikel resolution. The
@@ -749,7 +759,8 @@ class TinglysningClient:
                 continue
             try:
                 tingbog = self.get_tingbog(items[0]["uuid"])
-            except (RuntimeError, requests.exceptions.RequestException):
+            except (RuntimeError, requests.exceptions.RequestException) as e:
+                _reraise_if_outage(e)
                 upstream_errors += 1
                 continue
             for mat in tingbog.get("matrikler") or []:
@@ -801,13 +812,15 @@ class TinglysningClient:
                     continue
                 try:
                     items = self.search_property(postnr, vejnavn, husnr)
-                except (RuntimeError, requests.exceptions.RequestException):
+                except (RuntimeError, requests.exceptions.RequestException) as e:
+                    _reraise_if_outage(e)
                     continue
                 if not items:
                     continue
                 try:
                     tingbog = self.get_tingbog(items[0]["uuid"])
-                except (RuntimeError, requests.exceptions.RequestException):
+                except (RuntimeError, requests.exceptions.RequestException) as e:
+                    _reraise_if_outage(e)
                     continue
                 for mat in tingbog.get("matrikler") or []:
                     if (mat.get("matrikelnummer") == matrikelnr

@@ -27,6 +27,15 @@ import dafo
 log = logging.getLogger(__name__)
 
 _client = TinglysningClient()
+
+# tinglysning.dk answers every request (incl. its front page) with HTTP 503
+# and a "Det Digitale Tinglysningssystem er for øjeblikket ikke tilgængeligt"
+# page during outages and planned maintenance.
+TL_OUTAGE_DETAIL = (
+    "Tinglysning.dk er nede lige nu (driftsforstyrrelse eller vedligehold hos "
+    "Tinglysningsretten). Ejere, hæftelser og servitutter kan ikke hentes, "
+    "før systemet er tilbage - se status på tinglysningsretten.dk."
+)
 _matrikel_area_cache: TTLCache = TTLCache(maxsize=4096, ttl=86400)
 
 # WGS84 (EPSG:4326) -> ETRS89 / UTM zone 32N (EPSG:25832). Used for
@@ -393,6 +402,9 @@ def lookup_matrikel(
                 status_code=429,
                 detail="Tinglysning.dk er midlertidigt overbelastet - prøv igen om et øjeblik.",
             )
+        if e.response is not None and e.response.status_code == 503:
+            log.warning("lookup-matrikel: tinglysning.dk outage (503)")
+            raise HTTPException(status_code=503, detail=TL_OUTAGE_DETAIL)
         log.warning("lookup-matrikel upstream HTTP error: %s", e)
         raise HTTPException(
             status_code=502,
@@ -467,11 +479,20 @@ def lookup(q: str = Query(...)):
                 status_code=429,
                 detail="Tinglysning.dk er midlertidigt overbelastet - prøv igen om et øjeblik.",
             )
+        if e.response is not None and e.response.status_code == 503:
+            log.warning("tinglysning.dk outage (503) for %r", q)
+            raise HTTPException(status_code=503, detail=TL_OUTAGE_DETAIL)
         log.warning("tinglysning upstream HTTP error for %r: %s", q, e)
-        raise HTTPException(status_code=502, detail="Tinglysning.dk unreachable")
+        raise HTTPException(
+            status_code=502,
+            detail="Tinglysning.dk er ikke til at få fat i lige nu - prøv igen om lidt.",
+        )
     except requests.RequestException as e:
         log.warning("tinglysning upstream error for %r: %s", q, e)
-        raise HTTPException(status_code=502, detail="Tinglysning.dk unreachable")
+        raise HTTPException(
+            status_code=502,
+            detail="Tinglysning.dk er ikke til at få fat i lige nu - prøv igen om lidt.",
+        )
     except RuntimeError as e:
         msg = str(e)
         if "No property found" in msg:
