@@ -33,14 +33,15 @@ CASES = [
     # Kept small on purpose: every case costs tinglysning.dk requests, and
     # the full 29-case list hit their daily cap. One case per property type.
     ("andel-individuel / Vesterbrogade 50 1. tv", "Vesterbrogade 50, 1. tv, 1620 København V", {"has_andel": True}),
-    ("andel-hoved / Ryttervænget 101A",          "Ryttervænget 101A, 6752 Glejbjerg",
-     {"has_andel": True, "owner_contains": "andelsboligforeningen"}),
+    ("andel-hoved / Bellmansgade 7",              "Bellmansgade 7, 2100 København Ø",
+     {"has_andel": True, "owner_contains": "a/b"}),
+    # Owner name matches the andel keyword, andelsoeg returns 0 hits -> andelsbolig=None.
+    ("andel-hoved uden andelsboligbog-hit / Jægertoften 2", "Jægertoften 2, 6780 Skærbæk",
+     {"has_andel": False, "owner_contains": "andelsboligforeningen"}),
     ("villa / Elmevej 14 Them",                   "Elmevej 14, 8653 Them",                    {"has_andel": False}),
     ("villa / navnebeskyttet Lyngby",             "Egegårdsvej 12, 2800 Kongens Lyngby",      {"has_andel": False}),
     ("ejerlejlighed / Nygårdsvej 29, 1. 5 Esbjerg", "Nygårdsvej 29, 1. 5, 6700 Esbjerg",
      {"adresse_is": "Nygårdsvej 29, 1. 5, 6700 Esbjerg"}),
-    ("ejerlejlighed-hoved / Nygårdsvej 29 Esbjerg", "Nygårdsvej 29, 6700 Esbjerg",
-     {"adresse_is": "Nygårdsvej 29, 6700 Esbjerg"}),
     ("erhverv-offentlig / Kongens Nytorv 1",      "Kongens Nytorv 1, 1050 København K",
      {"has_andel": False, "owner_contains": "undervisningsministeriet"}),
     ("almen-bolig / Mjølnerparken 2 KBH N",       "Mjølnerparken 2, kl., 2200 København N",   {"has_andel": False}),
