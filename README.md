@@ -38,7 +38,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 # Address/cadastre credentials (free, see "Data sources"). Never commit them.
-export DATAFORSYNINGEN_TOKEN=...   # gsearch (search box) + satellite basemap
+export DATAFORSYNINGEN_TOKEN=...   # satellite basemap
 export DATAFORDELER_API_KEY=...    # Datafordeler GraphQL (DAR + Matriklen)
 
 # Web UI (http://localhost:8000)
@@ -78,7 +78,7 @@ Caddy listens on port **18000** and proxies to the app. Set `DUCKDNS_DOMAIN` to 
 
 Open `http://localhost:8000` in a browser.
 
-- **Search** by typing an address in the sidebar - autocomplete is powered by Dataforsyningen [gsearch](https://dataforsyningen.dk/data/4987).
+- **Search** by typing an address in the sidebar - autocomplete is a prefix search on DAR via Datafordeler GraphQL (Dataforsyningen gsearch was shut down 2026-11-26).
 - **Ejerlejligheder**: add floor/door (`Nygårdsvej 29, 1. 5, 6700 Esbjerg`) to get that flat's own tingbog. Typing past the house number (`Nygårdsvej 29, 1`) lists the flats. Without floor/door you get the main property (`Hovedejendom opdelt i ejerlejligheder`).
 - **Click the map** to look up the property at that location. Clicks are resolved by the **matrikel under the cursor** (cadastral parcel) rather than the nearest street address - so a click on parcel A always returns parcel A's tingbog, even if a neighbouring address happens to be physically closer to the click point.
 - Up to **10 addresses** can be pinned simultaneously. Each gets a numbered marker; click a marker to scroll to its details in the sidebar.
@@ -90,7 +90,7 @@ Open `http://localhost:8000` in a browser.
 
 | Endpoint | Parameters | Description |
 |---|---|---|
-| `GET /api/autocomplete` | `q` | Address/street autocomplete (gsearch) |
+| `GET /api/autocomplete` | `q` | Address/street autocomplete (DAR prefix search) |
 | `GET /api/lookup` | `q` | Full property lookup by freeform address |
 | `GET /api/click` | `lat`, `lng` | Resolve a map click to its matrikel via Matriklen point-in-polygon (`MAT_Lodflade`) |
 | `GET /api/lookup-matrikel` | `matrikelnr`, `ejerlavskode`, `lat?`, `lng?` | Tingbog lookup driven by matrikel identity. Optional `lat`/`lng` enable andelsbolig enrichment for the dwelling closest to the click. |
@@ -149,7 +149,7 @@ nosynabo composes data from several public Danish registers. None of them requir
 
 | Source | Used for | Auth |
 |---|---|---|
-| **Dataforsyningen gsearch v2** | Freeform address resolution and search-box autocomplete | `DATAFORSYNINGEN_TOKEN` (free) |
+| **Datafordeler GraphQL DAR** (prefix search) | Freeform address resolution and search-box autocomplete (gsearch shut down 2026-11-26) | `DATAFORDELER_API_KEY` |
 | **Datafordeler GraphQL** (DAR + Matriklen) | Address <-> matrikel joins, parcel areas, SFE/BFE, parcel polygons, map-click and GPS reverse lookups | `DATAFORDELER_API_KEY` (free service user) |
 | **tinglysning.dk ejendomsoeg** | Physical property records: owners, valuation, mortgages, easements | ALTCHA |
 | **tinglysning.dk andelsoeg** | Cooperative-share records: individual member's mortgages on their share | ALTCHA |
@@ -165,7 +165,7 @@ ALTCHA is a CAPTCHA-style proof-of-work: the server hands out a challenge, the c
 
 There are two distinct flows depending on how the user identifies the property:
 
-- **Address flow** (`/api/lookup`) - typed address from the search box, resolved via gsearch + DAR, then tinglysning by `(postnr, vejnavn, husnr)`.
+- **Address flow** (`/api/lookup`) - typed address from the search box, resolved via DAR search + DAR/MAT join, then tinglysning by `(postnr, vejnavn, husnr)`.
 - **Map-click flow** (`/api/click` → `/api/lookup-matrikel`) - pixel-precise click on the map, resolved by the matrikel under the cursor. Avoids the misalignment risk of the older haversine-based reverse geocoder, which could resolve a click on parcel A to an address on neighbouring parcel B.
 
 ### Address flow
@@ -175,7 +175,7 @@ A single call to `GET /api/lookup?q=…` kicks off this decision tree. The ejend
 ```mermaid
 flowchart TD
     A["Freeform address<br/>e.g. 'Eksempelvej 1 1234 Byby'"]
-    A --> B[gsearch + DAR resolve]
+    A --> B[DAR search + resolve]
     B --> C["Returns: postnr, vejnavn, husnr,<br/>matrikelnr, ejerlav,<br/>lat/lng, adresse_uuid"]
 
     C --> D[andelsoeg/soeg<br/>always, in parallel]
@@ -255,7 +255,7 @@ This means every "list search" endpoint becomes an addressable entry point to th
 
 ```mermaid
 flowchart LR
-    ADDR[gsearch + DAR]
+    ADDR[DAR search]
     ADDR -->|postnr, vejnavn, husnr| ESOEG[ejendomsoeg/soeg]
     ADDR -->|postnr, vejnavn, husnr| ASOEG[andelsoeg/soeg]
     ADDR -->|ejerlav + matrikelnr| ADDR2[DAR husnumre<br/>by jordstykke]
