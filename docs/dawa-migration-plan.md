@@ -251,7 +251,7 @@ Implementeret på `feat/dawa-to-datafordeler`. DAWA svarede `410 Gone`, så fase
 
 | ADR | Beslutning |
 |---|---|
-| 1 | Søgefelt via Dataforsyningen **gsearch v2** (`DATAFORSYNINGEN_TOKEN`); alt andet via **Datafordeler GraphQL** (`DATAFORDELER_API_KEY`). Adressevælger fravalgt indtil videre, se note |
+| 1 | Søgefelt via Dataforsyningen **gsearch v2** (`DATAFORSYNINGEN_TOKEN`); alt andet via **Datafordeler GraphQL** (`DATAFORDELER_API_KEY`). Adressevælger fravalgt indtil videre, se note. **Erstattet 2026-11-27, se ADR-10** |
 | 2 | Ét klientmodul `dafo.py`. Ingen switch - intet at rulle tilbage til |
 | 3 | API-kontrakten mod browseren er uændret |
 | 4 | Egen lille WKT-parser (2D POINT/POLYGON/MULTIPOLYGON) frem for shapely - KISS |
@@ -260,6 +260,7 @@ Implementeret på `feat/dawa-to-datafordeler`. DAWA svarede `410 Gone`, så fase
 | 7 | GPS: `DAR_Adressepunkt within` i felter på 60/200/500 m |
 | 8 | Kortklik: `MAT_Lodflade contains`. Punktopslaget caches ikke (giver ingen mening) |
 | 9 | `DafoError` arver `requests.RequestException` -> 502 |
+| 10 | (2026-11-27, PR #31) gsearch lukket 2026-11-26. Søgefelt + resolver via **DAR GraphQL `startsWith`** i `dafo.gsearch()` (samme svarform, ingen Dataforsyningen-afhængighed). Bifrost (afløser) kræver ny login/organisationsnøgle - revurderes efter 2026-11-30. ADR-5/6 gælder stadig, nu mod DAR |
 | 10 | Nøgler kun i env/server-side, `apikey` strippes fra fejl, GraphQL-literals escapes |
 | 11 | Ingen DAWA-paritetstest; POC-verifikationen fra 2026-09-04 accepteres som facit |
 
@@ -270,8 +271,9 @@ Ingen henvendelse til KDS om `@cost`-kvoter.
 ## 10. Long-term TODO
 
 - [ ] **API-oprydning:** `esrejendomsnr` er nu altid `null`, og `bfenummer`/`sfeejendomsnr` er samme værdi. Fjern/saml i en senere PR (ADR-3)
-- [ ] **Overvågning af tavse fejl:** konfigurationsfejl (fx manglende nøgle) og ændringer i gsearch/GraphQL-skema ligner bare upstream-udfald (502). Vi skal opdage det, når noget breaker - fx health-check eller alarm på 502-rate (ADR-9)
+- [ ] **Overvågning af tavse fejl:** konfigurationsfejl (fx manglende nøgle) og ændringer i GraphQL-skema ligner bare upstream-udfald (502). Vi skal opdage det, når noget breaker - fx health-check eller alarm på 502-rate (ADR-9). Gsearch-lukningen 2026-11-26 blev først opdaget dagen efter af en bruger
 - [ ] **Adressevælger:** revurder når brugerstyring er åben; skaf token via support@kds.dk (ADR-1)
+- [ ] **Bifrost:** evaluer som afløser for DAR-prefixsøgningen (stavefejl, rangering). Kræver organisationsnøgle på Dataforsyningen (ADR-10)
 - [x] **/readme er brudt i prod** (rettet i fix/readme-csp) (siden 2026-08-20): prod-CSP blokerer `marked` fra jsdelivr og `fetch` til raw.githubusercontent.com. Fix: self-host `marked` i `static/vendor/` og server repoets egen `README.md` fra appen - ingen CSP-ændring. Separat PR
 - [ ] **Dev mangler CSP:** `nosy.dossing.net` sender ingen CSP-header, så CSP-fejl ses kun i prod. Overvej prods CSP kun i nosy-vhosten på webhost1 (delt server - se projektkontekst)
 - [ ] **DAWA-rester i CSP/preconnect:** prod `connect-src` og `<link rel="preconnect">` peger stadig på `api.dataforsyningen.dk`; satellitkortet går via `img-src`. Verificér og fjern
