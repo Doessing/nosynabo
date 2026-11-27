@@ -30,122 +30,23 @@ from nosy_nabo import TinglysningClient
 # ---------------------------------------------------------------------------
 
 CASES = [
-    # ------------------------------------------------------------------
-    # Andelsboliger - individuelle andele (ejd=0, altid andelsoeg)
-    # ------------------------------------------------------------------
-    (
-        "andel-individuel / Jægertoften 6",
-        "Jægertoften 6, 6780 Skærbæk",
-        {"has_andel": True},
-    ),
-    (
-        "andel-individuel / Ryttervænget 107A",
-        "Ryttervænget 107A, 6752 Glejbjerg",
-        {"has_andel": True},
-    ),
-    (
-        "andel-individuel / Bellmansgade 13 stor forening",
-        "Bellmansgade 13, 1. 1, 2100 København Ø",
-        {"has_andel": True},
-    ),
-    (
-        "andel-individuel / Vesterbrogade 50 1. tv",
-        "Vesterbrogade 50, 1. tv, 1620 København V",
-        {"has_andel": True},
-    ),
-    (
-        "andel-individuel / Vesterbrogade 60 2.",
-        "Vesterbrogade 60, 2., 1620 København V",
-        {"has_andel": True},
-    ),
-    # ------------------------------------------------------------------
-    # Andelsboliger - hoved-ejendomme (ejd=1, ejer matcher andel-keyword)
-    # ------------------------------------------------------------------
-    (
-        "andel-hoved / Ryttervænget 101A",
-        "Ryttervænget 101A, 6752 Glejbjerg",
-        {"has_andel": True, "owner_contains": "andelsboligforeningen"},
-    ),
-    (
-        "andel-hoved / Bellmansgade 7",
-        "Bellmansgade 7, 2100 København Ø",
-        {"has_andel": True, "owner_contains": "a/b"},
-    ),
-    (
-        "andel-hoved / Vesterbrogade 50",
-        "Vesterbrogade 50, 1620 København V",
-        {"has_andel": True, "owner_contains": "a/b"},
-    ),
-    (
-        "andel-hoved / Vesterbrogade 60",
-        "Vesterbrogade 60, 1620 København V",
-        {"has_andel": True, "owner_contains": "andelsboligforeningen"},
-    ),
-    # Jægertoften 2 er hoved-ejendom for foreningen men har ingen andels-
-    # poster i andelsboligbogen - ejere-navn matcher keyword, andelsoeg
-    # kaldes, returnerer 0 hits → andelsbolig=None er korrekt.
-    (
-        "andel-hoved uden andelsboligbog-hit / Jægertoften 2",
-        "Jægertoften 2, 6780 Skærbæk",
-        {"has_andel": False, "owner_contains": "andelsboligforeningen"},
-    ),
-    # ------------------------------------------------------------------
-    # Normale villaer - privatpersoner (skal IKKE kalde andelsoeg)
-    # ------------------------------------------------------------------
-    ("villa / Elmevej 14 Them",             "Elmevej 14, 8653 Them",                 {"has_andel": False}),
-    ("villa / Akacievej 12 Odense N",        "Akacievej 12, 5270 Odense N",           {"has_andel": False}),
-    ("villa / Birkevej 4 Viborg",            "Birkevej 4, 8800 Viborg",               {"has_andel": False}),
-    ("villa / Skovvej 8 Hillerød",           "Skovvej 8, 3400 Hillerød",              {"has_andel": False}),
-    ("villa / Møllevej 2A Sønderborg",       "Møllevej 2A, 6400 Sønderborg",          {"has_andel": False}),
-    ("villa / Rosenvej 5 Vejle",             "Rosenvej 5, 7100 Vejle",                {"has_andel": False}),
-    ("villa / Lærkevej 7 Næstved",           "Lærkevej 7, 4700 Næstved",              {"has_andel": False}),
-    ("villa / navnebeskyttet Lyngby",        "Egegårdsvej 12, 2800 Kongens Lyngby",   {"has_andel": False}),
-    ("villa / selskab Hellerup",             "Strandvejen 100, 2900 Hellerup",         {"has_andel": False}),
-    # ------------------------------------------------------------------
-    # Ejerlejligheder
-    # ------------------------------------------------------------------
-    (
-        "ejerlejlighed-komplex / Sonnesgade 15 Aarhus",
-        "Sonnesgade 15, st. tv, 8000 Aarhus C",
-        {"has_andel": False},
-    ),
-    (
-        "ejerlejlighed / Nygårdsvej 29, 1. 5 Esbjerg",
-        "Nygårdsvej 29, 1. 5, 6700 Esbjerg",
-        {"adresse_is": "Nygårdsvej 29, 1. 5, 6700 Esbjerg"},
-    ),
-    (
-        "ejerlejlighed-hoved / Nygårdsvej 29 Esbjerg",
-        "Nygårdsvej 29, 6700 Esbjerg",
-        {"adresse_is": "Nygårdsvej 29, 6700 Esbjerg"},
-    ),
-    # ------------------------------------------------------------------
-    # Erhverv og offentlige ejendomme
-    # ------------------------------------------------------------------
-    (
-        "erhverv-offentlig / Kongens Nytorv 1",
-        "Kongens Nytorv 1, 1050 København K",
-        {"has_andel": False, "owner_contains": "undervisningsministeriet"},
-    ),
-    (
-        "erhverv-offentlig / Rådhuspladsen 1",
-        "Rådhuspladsen 1, 1550 København V",
-        {"has_andel": False, "owner_contains": "kommune"},
-    ),
-    # ------------------------------------------------------------------
-    # Almene boliger
-    # ------------------------------------------------------------------
-    ("almen-bolig / Agerhaven 2 Hedehusene",  "Agerhaven 2, 2640 Hedehusene",          {"has_andel": False}),
-    ("almen-bolig / Mjølnerparken 2 KBH N",   "Mjølnerparken 2, kl., 2200 København N", {"has_andel": False}),
-    # ------------------------------------------------------------------
-    # Landbrug
-    # ------------------------------------------------------------------
-    ("landbrug / Lindevej 14 Sorø",           "Lindevej 14, 4180 Sorø",                {"has_andel": False}),
-    ("landbrug / Bækkegårdsvej 2 Viborg",     "Bækkegårdsvej 2, 8800 Viborg",          {"has_andel": False}),
-    # ------------------------------------------------------------------
-    # Sommerhus
-    # ------------------------------------------------------------------
-    ("sommerhus / Mentz Alle 8 Gilleleje",    "Mentz Alle 8, 3250 Gilleleje",          {"has_andel": False}),
+    # Kept small on purpose: every case costs tinglysning.dk requests, and
+    # the full 29-case list hit their daily cap. One case per property type.
+    ("andel-individuel / Vesterbrogade 50 1. tv", "Vesterbrogade 50, 1. tv, 1620 København V", {"has_andel": True}),
+    ("andel-hoved / Bellmansgade 7",              "Bellmansgade 7, 2100 København Ø",
+     {"has_andel": True, "owner_contains": "a/b"}),
+    # Owner name matches the andel keyword, andelsoeg returns 0 hits -> andelsbolig=None.
+    ("andel-hoved uden andelsboligbog-hit / Jægertoften 2", "Jægertoften 2, 6780 Skærbæk",
+     {"has_andel": False, "owner_contains": "andelsboligforeningen"}),
+    ("villa / Elmevej 14 Them",                   "Elmevej 14, 8653 Them",                    {"has_andel": False}),
+    ("villa / navnebeskyttet Lyngby",             "Egegårdsvej 12, 2800 Kongens Lyngby",      {"has_andel": False}),
+    ("ejerlejlighed / Nygårdsvej 29, 1. 5 Esbjerg", "Nygårdsvej 29, 1. 5, 6700 Esbjerg",
+     {"adresse_is": "Nygårdsvej 29, 1. 5, 6700 Esbjerg"}),
+    ("erhverv-offentlig / Kongens Nytorv 1",      "Kongens Nytorv 1, 1050 København K",
+     {"has_andel": False, "owner_contains": "undervisningsministeriet"}),
+    ("almen-bolig / Mjølnerparken 2 KBH N",       "Mjølnerparken 2, kl., 2200 København N",   {"has_andel": False}),
+    ("landbrug / Lindevej 14 Sorø",               "Lindevej 14, 4180 Sorø",                   {"has_andel": False}),
+    ("sommerhus / Mentz Alle 8 Gilleleje",        "Mentz Alle 8, 3250 Gilleleje",             {"has_andel": False}),
 ]
 
 
