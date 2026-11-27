@@ -1,15 +1,15 @@
 """
 Address + cadastre client - replaces DAWA (shut down 2026-10-01).
 
-Two upstreams, both server-side only:
+Both server-side only:
 
-* Dataforsyningen gsearch v2 (``DATAFORSYNINGEN_TOKEN``) - fuzzy text search
-  for addresses and street names. Drives the search box.
+* Datafordeler GraphQL DAR prefix search - drives the search box (replaced
+  Dataforsyningen gsearch, shut down 2026-11-26). See ``gsearch()``.
 * Datafordeler GraphQL ``flexibleCurrent`` (``DATAFORDELER_API_KEY``) - DAR
   (addresses) and MAT (Matriklen): matrikel <-> address joins, areas, SFE,
   parcel polygons and point-in-polygon for map clicks.
 
-Neither credential may ever be committed; both are read from the environment.
+The credential may never be committed; it is read from the environment.
 
 Coordinates: both upstreams speak EPSG:25832. The browser speaks WGS84, so
 everything leaving this module is converted to lat/lng (GeoJSON in 4326).
@@ -32,7 +32,6 @@ from pyproj import Transformer
 
 log = logging.getLogger(__name__)
 
-GSEARCH_URL = "https://api.dataforsyningen.dk/rest/gsearch/v2.0"
 GRAPHQL_URL = "https://graphql.datafordeler.dk/flexibleCurrent/v1"
 
 _TIMEOUT = (3, 10)
@@ -83,23 +82,173 @@ def _json(resp: requests.Response, what: str) -> Any:
         raise DafoError(f"{what}: invalid JSON response") from None
 
 
+_SEARCH_HUSNR_RE = re.compile(r"\d{1,3}[A-Za-zÆØÅæøå]?")
+
+
+def _case_variants(prefix: str) -> list[str]:
+    """DAR startsWith is case-sensitive; users type lowercase. Try as typed,
+    first letter upper, then every word capitalised ("Gl. Kongevej")."""
+    out = [prefix, prefix[:1].upper() + prefix[1:],
+           " ".join(w[:1].upper() + w[1:] for w in prefix.split(" "))]
+    return list(dict.fromkeys(out))
+
+
+def _starts_with(entity: str, field: str, prefix: str, fields: str, first: int) -> list[dict]:
+    for p in _case_variants(prefix):
+        nodes = _nodes(gql(f'{entity}(virkningstid:$NOW, first:{first},'
+                           f' where:{{{field}:{{startsWith:{_lit(p)}}}}}){{ nodes{{ {fields} }} }}'), entity)
+        nodes = [n for n in nodes if n.get("status") in _LIVE_DAR]
+        if nodes:
+            return nodes
+    return []
+
+
+def _split_betegnelse(bet: str, husnr: str) -> tuple[str, str, str] | None:
+    """'Vej 1, [by,] 9300 Sæby' -> (vejnavn, postnr, postnavn)."""
+    parts = [p.strip() for p in bet.split(",")]
+    m = re.match(r"(\d{4})\s+(.*)", parts[-1]) if len(parts) >= 2 else None
+    if not m or not parts[0].endswith(" " + husnr):
+        return None
+    return parts[0][: -len(husnr) - 1], m.group(1), m.group(2)
+
+
+def _gs_point(xy: tuple[float, float] | None) -> dict:
+    return {"coordinates": [list(xy)]} if xy else {}
+
+
+def _points(pids: list[str]) -> dict[str, tuple[float, float]]:
+    pts: dict[str, tuple[float, float]] = {}
+    for i in range(0, len(pids), 500):
+        chunk = pids[i:i + 500]
+        data = gql(f'DAR_Adressepunkt(virkningstid:$NOW, first:{len(chunk)},'
+                   f' where:{{id_lokalId:{{in:{_list(chunk)}}}}}){{ nodes{{ id_lokalId position{{wkt}} }} }}')
+        for p in _nodes(data, "DAR_Adressepunkt"):
+            xy = _point_xy((p.get("position") or {}).get("wkt"))
+            if xy:
+                pts[p["id_lokalId"]] = xy
+    return pts
+
+
+def _husnr_key(h: str) -> tuple[int, str]:
+    m = re.match(r"(\d+)(.*)", h or "")
+    return (int(m.group(1)), m.group(2)) if m else (0, h or "")
+
+
+def _search_vej(words: list[str], limit: int) -> list[dict]:
+    # Trailing words may be a town ("Borgergade Glejbjerg"); shorten the
+    # street prefix and use the rest as a filter on postnr/postnavn.
+    for n in range(len(words), 0, -1):
+        rest = [w.lower() for w in words[n:]]
+        veje = _starts_with("DAR_NavngivenVej", "vejnavn", " ".join(words[:n]),
+                            "id_lokalId vejnavn status", 100)
+        if not veje:
+            continue
+        rel = _nodes(gql(f'DAR_NavngivenVejPostnummer(virkningstid:$NOW, first:1000,'
+                         f' where:{{navngivenVej:{{in:{_list([v["id_lokalId"] for v in veje])}}}}})'
+                         f'{{ nodes{{ navngivenVej postnummer status }} }}'), "DAR_NavngivenVejPostnummer")
+        rel = [r for r in rel if r.get("status") in _LIVE_DAR]
+        pids = list({r["postnummer"] for r in rel if r.get("postnummer")})
+        post = {p["id_lokalId"]: p for p in _nodes(gql(
+            f'DAR_Postnummer(virkningstid:$NOW, first:{max(len(pids), 1)},'
+            f' where:{{id_lokalId:{{in:{_list(pids)}}}}}){{ nodes{{ id_lokalId postnr navn }} }}'),
+            "DAR_Postnummer")} if pids else {}
+        navn = {v["id_lokalId"]: v["vejnavn"] for v in veje}
+        out = []
+        for r in rel:
+            p = post.get(r["postnummer"])
+            if not p or r["navngivenVej"] not in navn:
+                continue
+            hay = f'{p["postnr"]} {p["navn"]}'.lower()
+            if all(w in hay for w in rest):
+                out.append({"vejnavn": navn[r["navngivenVej"]], "postnummer": p["postnr"],
+                            "postnummernavn": p["navn"]})
+        if out:
+            return out[:limit]
+    return []
+
+
+def _label_matches(label: str, tokens: list[str], last_prefix: bool = False) -> bool:
+    # Short tokens ("st", "1", "tv") must match a whole word, so an etage/dør
+    # doesn't hit "Stouby"/"1300" and the caller falls through to flats.
+    # ``last_prefix``: the last token may still be half-typed.
+    words = re.findall(r"\w+", label.lower())
+    return all(t in words or ((len(t) >= 3 or (last_prefix and i == len(tokens) - 1))
+                              and any(w.startswith(t) for w in words))
+               for i, t in enumerate(tokens))
+
+
+def _search_hus(resource: str, words: list[str], idx: int, limit: int) -> list[dict]:
+    street, husnr = " ".join(words[:idx]), words[idx]
+    rest = [w.strip(".").lower() for w in words[idx + 1:] if w.strip(".")]
+    # Fully typed number (more words follow) -> exact number; while typing
+    # the number itself, "Vej 1" should also offer 10, 11, ...
+    exact = bool(rest) or resource == "adresse"
+    hus_fields = "id_lokalId adgangsadressebetegnelse husnummertekst status adgangspunkt"
+    if resource == "husnummer":
+        nodes = _starts_with("DAR_Husnummer", "adgangsadressebetegnelse",
+                             f"{street} {husnr}" + ("," if exact else ""), hus_fields, 1000)
+        rows = []
+        for h in nodes:
+            sp = _split_betegnelse(h.get("adgangsadressebetegnelse") or "", h.get("husnummertekst") or "")
+            if sp and _label_matches(h["adgangsadressebetegnelse"], rest):
+                rows.append((h, sp))
+        rows.sort(key=lambda r: (_husnr_key(r[0]["husnummertekst"]), r[1][1]))
+        rows = rows[:limit]
+        pts = _points([h["adgangspunkt"] for h, _ in rows if h.get("adgangspunkt")])
+        return [{"id": h["id_lokalId"], "visningstekst": h["adgangsadressebetegnelse"],
+                 "vejnavn": sp[0], "husnummertekst": h["husnummertekst"],
+                 "postnummer": sp[1], "postnummernavn": sp[2],
+                 "geometri": _gs_point(pts.get(h.get("adgangspunkt")))} for h, sp in rows]
+
+    # resource == "adresse": units (etage/dør) included.
+    nodes = _starts_with("DAR_Adresse", "adressebetegnelse", f"{street} {husnr},",
+                         "id_lokalId adressebetegnelse etagebetegnelse doerbetegnelse husnummer status", 1000)
+    nodes = [a for a in nodes if _label_matches(a["adressebetegnelse"], rest, last_prefix=True)]
+    # Exact word matches first, then property (no etage/dør) before flats.
+    nodes.sort(key=lambda a: (not _label_matches(a["adressebetegnelse"], rest),
+                              bool(a.get("etagebetegnelse") or a.get("doerbetegnelse")), a["adressebetegnelse"]))
+    nodes = nodes[:limit]
+    hids = list({a["husnummer"] for a in nodes if a.get("husnummer")})
+    hus = {h["id_lokalId"]: h for h in _nodes(gql(
+        f'DAR_Husnummer(virkningstid:$NOW, first:{max(len(hids), 1)},'
+        f' where:{{id_lokalId:{{in:{_list(hids)}}}}}){{ nodes{{ {hus_fields} }} }}'),
+        "DAR_Husnummer")} if hids else {}
+    pts = _points([h["adgangspunkt"] for h in hus.values() if h.get("adgangspunkt")])
+    out = []
+    for a in nodes:
+        h = hus.get(a.get("husnummer"))
+        if not h:
+            continue
+        sp = _split_betegnelse(h.get("adgangsadressebetegnelse") or "", h.get("husnummertekst") or "")
+        if not sp:
+            continue
+        out.append({"id": a["id_lokalId"], "visningstekst": a["adressebetegnelse"],
+                    "vejnavn": sp[0], "husnummer": h["husnummertekst"],
+                    "postnummer": sp[1], "postnummernavn": sp[2],
+                    "etagebetegnelse": a.get("etagebetegnelse") or None,
+                    "doerbetegnelse": a.get("doerbetegnelse") or None,
+                    "geometri": _gs_point(pts.get(h.get("adgangspunkt")))})
+    return out
+
+
 def gsearch(resource: str, q: str, limit: int = 10) -> list[dict]:
-    try:
-        resp = _get(
-        f"{GSEARCH_URL}/{resource}",
-        # gsearch rejects stray commas ("Vej , 1234") with HTTP 400 and
-        # doesn't need them for matching; collapse to plain words.
-            params={"q": " ".join(q.replace(",", " ").split()), "limit": limit, "token": _env("DATAFORSYNINGEN_TOKEN")},
-        )
-    except requests.HTTPError as e:
-        # Never let the token in the URL leak into logs via the exception.
-        status = e.response.status_code if e.response is not None else "?"
-        raise DafoError(f"gsearch {resource} HTTP {status}") from None
-    except DafoError:
-        raise
-    except requests.RequestException as e:
-        raise DafoError(f"gsearch {resource} unreachable: {type(e).__name__}") from None
-    return _json(resp, f"gsearch {resource}") or []
+    """Text search, gsearch-compatible result shape, backed by DAR GraphQL.
+
+    Dataforsyningen gsearch was shut down 2026-11-26 (replacement "Bifrost"
+    lives on Dataforsyningen too and needs new login/keys), so prefix-search
+    DAR directly. ``resource`` is one of navngivenvej / husnummer / adresse.
+    Words after the street (+ house number) filter on the rest of the label
+    (postnr, town, etage/dør).
+    """
+    words = q.replace(",", " ").split()
+    if not words:
+        return []
+    idx = next((i for i, w in enumerate(words) if i > 0 and _SEARCH_HUSNR_RE.fullmatch(w)), None)
+    if resource == "navngivenvej":
+        return _search_vej(words if idx is None else words[:idx], limit)
+    if idx is None:
+        return []
+    return _search_hus(resource, words, idx, limit)
 
 
 def _now() -> str:
