@@ -135,3 +135,11 @@ took the first hit (a random flat in the building). It now picks the hit
 whose etage/dør matches the resolved address, else the main property.
 Autocomplete falls back to gsearch `adresse` when `husnummer` has no match,
 so `Vej 29, 1` suggests the flats. Regression: Nygårdsvej 29 (1. 5 + hoved).
+
+## gsearch-shutdown (2026-11)
+
+Dataforsyningen shut gsearch down 2026-11-26 (replacement Bifrost needs the new
+Dataforsyningen login/keys from 2026-11-30). `dafo.gsearch()` now does a
+case-tolerant `startsWith` search on DAR GraphQL (`DAR_NavngivenVej` +
+`DAR_NavngivenVejPostnummer`, `DAR_Husnummer`, `DAR_Adresse`) with the same
+result shape; trailing words filter on postnr/town/etage/dør.
